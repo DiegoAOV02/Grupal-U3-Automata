@@ -1,0 +1,50 @@
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <ImageView
+        android:id="@+id/imageView"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:layout_gravity="center"
+        android:scaleType="centerCrop"
+        android:background="#e0e0e0" />
+
+    <Button
+        android:id="@+id/btnCapture"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Capturar Autómata" />
+
+    <EditText
+        android:id="@+id/inputString"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Ingrese la cadena (0s y 1s)"
+        android:inputType="text" />
+
+    <Button
+        android:id="@+id/btnSimulate"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Simular Cadena" />
+
+    <TextView
+        android:id="@+id/tvResult"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Resultado"
+        android:textSize="18sp"
+        android:gravity="center" />
+
+<!--    <com.z_iti_271311_u3_e07.AutomataView-->
+<!--        android:id="@+id/automataView"-->
+<!--        android:layout_width="match_parent"-->
+<!--        android:layout_height="400dp"-->
+<!--        android:background="#FFFFFF" />-->
+
+</LinearLayout>
