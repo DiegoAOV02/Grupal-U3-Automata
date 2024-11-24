@@ -1,10 +1,22 @@
-package com.z_iti_271311_u3_e07;
+package com.automatas;
 
+import static org.opencv.imgproc.Imgproc.getStructuringElement;
+
+import android.Manifest;
+import android.app.AlertDialog;
+import android.content.ContentValues;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.util.Log;
 import android.widget.Button;
 import android.widget.EditText;
@@ -12,202 +24,389 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
-
-import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.text.Text;
-import com.google.mlkit.vision.text.TextRecognition;
-import com.google.mlkit.vision.text.TextRecognizer;
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 
 import org.opencv.android.OpenCVLoader;
-import org.opencv.core.CvType;
+import org.opencv.android.Utils;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfPoint;
+import org.opencv.core.MatOfPoint2f;
+import org.opencv.core.Point;
+import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final int CAMERA_REQUEST = 100;
-    private ImageView imageView;
-    private EditText inputString;
-    private TextView tvResult;
-    private Bitmap capturedImage;
-    private Automata automata;
-    private Uri imageUri;
+    private static final int CAMERA_REQUEST_CODE = 100;
+    private static final int PERMISSION_REQUEST_CODE = 200;
+
+    private ImageView imageView; // Mostrar imagen original
+    private DrawingView drawingView; // Lienzo para dibujo
+    private EditText inputString; // Para ingresar cadenas
+    private TextView tvResult; // Result ado de simulación
+    private String currentPhotoPath;
+    private Uri photoURI;
+
+    //Matrices necesarias
+    private Mat mFotoOriginal;
+    private Mat mFotoGrises;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Inicializar OpenCV
+        if (!OpenCVLoader.initDebug()) {
+            Log.e("OpenCV", "Error al cargar OpenCV");
+        }
+
         setContentView(R.layout.activity_main);
 
         imageView = findViewById(R.id.imageView);
-        Button btnCapture = findViewById(R.id.btnCapture);
+        drawingView = findViewById(R.id.drawView);
         inputString = findViewById(R.id.inputString);
-        Button btnSimulate = findViewById(R.id.btnSimulate);
         tvResult = findViewById(R.id.tvResult);
 
-        // Inicializar OpenCV
-        if (!OpenCVLoader.initLocal()) {
-            Log.e("OpenCV", "No se pudo cargar OpenCV.");
-        } else {
-            Log.d("OpenCV", "OpenCV cargado correctamente.");
+        Button btnCapture = findViewById(R.id.btnCapture);
+        Button btnSimulate = findViewById(R.id.btnSimulate);
+
+        // Verificar y solicitar permisos al iniciar
+        if (!checkAndRequestPermissions()) {
+            Toast.makeText(this, "Concede los permisos necesarios para continuar.", Toast.LENGTH_SHORT).show();
         }
 
-        btnCapture.setOnClickListener(v -> openCamera());
-        btnSimulate.setOnClickListener(v -> simulateString());
+        // Capturar imagen
+        btnCapture.setOnClickListener(v -> {
+            if (checkAndRequestPermissions()) {
+                openCamera();
+            }
+        });
+
+        // Simular cadena en el autómata
+        btnSimulate.setOnClickListener(v -> {
+            String input = inputString.getText().toString();
+            if (currentPhotoPath != null && !input.isEmpty()) {
+                simulateAutomata(input);
+            } else {
+                Toast.makeText(this, "Captura una imagen y escribe una cadena.", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    // Solicitar permisos dinámicos
+    private boolean checkAndRequestPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // Para Android 14 y superiores, solo necesitamos permiso de cámara
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.CAMERA},
+                        PERMISSION_REQUEST_CODE);
+                return false;
+            }
+            return true;
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Para Android 10 y superiores
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.CAMERA},
+                        PERMISSION_REQUEST_CODE);
+                return false;
+            }
+            return true;
+        } else {
+            // Para versiones anteriores a Android 10
+            String[] permissions = {
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+            };
+
+            List<String> listPermissionsNeeded = new ArrayList<>();
+            for (String permission : permissions) {
+                if (ContextCompat.checkSelfPermission(this, permission)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    listPermissionsNeeded.add(permission);
+                }
+            }
+
+            if (!listPermissionsNeeded.isEmpty()) {
+                ActivityCompat.requestPermissions(this,
+                        listPermissionsNeeded.toArray(new String[0]),
+                        PERMISSION_REQUEST_CODE);
+                return false;
+            }
+            return true;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+
+            if (allGranted) {
+                // Si todos los permisos fueron concedidos, proceder con la operación
+                openCamera();
+            } else {
+                Toast.makeText(this,
+                        "Se requieren permisos para usar la cámara",
+                        Toast.LENGTH_SHORT).show();
+
+                // Mostrar diálogo explicativo si es necesario
+                if (shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
+                    // Aquí podrías mostrar un diálogo explicando por qué necesitas los permisos
+                    new AlertDialog.Builder(this)
+                            .setTitle("Permisos necesarios")
+                            .setMessage("Esta aplicación necesita acceso a la cámara para funcionar correctamente.")
+                            .setPositiveButton("Configuración", (dialog, which) -> {
+                                // Abrir configuración de la app
+                                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                                Uri uri = Uri.fromParts("package", getPackageName(), null);
+                                intent.setData(uri);
+                                startActivity(intent);
+                            })
+                            .setNegativeButton("Cancelar", null)
+                            .show();
+                }
+            }
+        }
+    }
+
+    public void guardarMat(Mat matriz, String nombre) {
+        Bitmap bitmap = Bitmap.createBitmap(matriz.cols(), matriz.rows(), Bitmap.Config.ARGB_8888);
+        Utils.matToBitmap(matriz, bitmap);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // Código original para Android 14+
+            //Toast.makeText(this, "Version 14", Toast.LENGTH_SHORT).show();
+            File directorio = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+            File archivoImagen = new File(directorio, nombre + ".jpg");
+            try (FileOutputStream out = new FileOutputStream(archivoImagen)) {
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out);
+                Toast.makeText(this, archivoImagen.getAbsolutePath(), Toast.LENGTH_SHORT).show();
+            } catch (IOException e) {
+                e.printStackTrace();
+                Toast.makeText(this, "Error al guardar la imagen", Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            //Toast.makeText(getApplicationContext(), "Versiones anteriores", Toast.LENGTH_LONG).show();
+            // Código para Android 13 y versiones anteriores
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, nombre + ".jpg");
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Para Android 10 (Q) y superior pero menor a 14
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES);
+            }
+
+            Uri imageUri = this.getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (imageUri != null) {
+                try (OutputStream out = this.getContentResolver().openOutputStream(imageUri)) {
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Toast.makeText(this, "Error al guardar la imagen", Toast.LENGTH_SHORT).show();
+                }
+            }
+        }
     }
 
     private void openCamera() {
         Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        // Verificar si hay una aplicación de cámara disponible
         if (cameraIntent.resolveActivity(getPackageManager()) != null) {
-            startActivityForResult(cameraIntent, CAMERA_REQUEST);
+            File photoFile = null;
+            try {
+                photoFile = createImageFile();
+            } catch (IOException ex) {
+                Log.e("Camera", "Error al crear archivo", ex);
+                Toast.makeText(this, "Error al crear archivo de imagen", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            try {
+                photoURI = FileProvider.getUriForFile(
+                        this,
+                        "com.automatas.fileprovider", // Asegúrate de que coincide con el authority definido
+                        photoFile
+                );
+                cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI);
+                cameraIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivityForResult(cameraIntent, CAMERA_REQUEST_CODE);
+            } catch (IllegalArgumentException e) {
+                Log.e("Camera", "Error con FileProvider", e);
+                Toast.makeText(this, "Error al configurar la cámara", Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            Toast.makeText(this, "No se encontró una aplicación de cámara", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private File createImageFile() throws IOException {
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String imageFileName = "JPEG_" + timeStamp + "_";
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Crear archivo temporal en el directorio de la app
+            File storageDir = new File(getExternalFilesDir(Environment.DIRECTORY_PICTURES), "AutomatasApp");
+            if (!storageDir.exists()) {
+                storageDir.mkdirs();
+            }
+            File tempFile = File.createTempFile(imageFileName, ".jpg", storageDir);
+            currentPhotoPath = tempFile.getAbsolutePath();
+
+            // También crear entrada en MediaStore para acceso público
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, imageFileName + ".jpg");
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/AutomatasApp");
+            values.put(MediaStore.Images.Media.IS_PENDING, 1);
+
+            Uri mediaStoreUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (mediaStoreUri != null) {
+                // Guardar el URI para actualizar IS_PENDING después
+                photoURI = mediaStoreUri;
+            }
+
+            return tempFile;
+        } else {
+            // Para versiones anteriores a Android 10
+            File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+            File imageFile = File.createTempFile(imageFileName, ".jpg", storageDir);
+            currentPhotoPath = imageFile.getAbsolutePath();
+            return imageFile;
         }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == CAMERA_REQUEST && resultCode == RESULT_OK) {
+
+        if (requestCode == CAMERA_REQUEST_CODE && resultCode == RESULT_OK) {
+            // Procesar la imagen
             try {
-                if (data != null && data.getExtras() != null) {
-                    capturedImage = (Bitmap) data.getExtras().get("data");
+                Bitmap bitmap = BitmapFactory.decodeFile(currentPhotoPath);
 
-                    if (!isImageValid(capturedImage)) {
-                        Toast.makeText(this, "La imagen es demasiado oscura o no válida. Intente nuevamente.", Toast.LENGTH_LONG).show();
-                        return;
-                    }
+                // Obtener la orientación de la imagen desde los metadatos EXIF
+                int orientation = getExifOrientation(currentPhotoPath);
 
-                    imageView.setImageBitmap(capturedImage);
-                    processAutomataImage(capturedImage);
-                }
+                // Rotar la imagen si es necesario
+                Bitmap rotatedBitmap = rotateImageIfNeeded(bitmap, orientation);
+
+                // Procesar la imagen para detectar formas
+                detectAutomata(rotatedBitmap);
+
+                // Mostrar la imagen capturada (ahora con la orientación correcta)
+                imageView.setImageBitmap(rotatedBitmap);
             } catch (Exception e) {
-                e.printStackTrace();
-                Toast.makeText(this, "Error al procesar la imagen: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                Log.e("Camera", "Error al procesar la imagen", e);
             }
         }
     }
 
-    private boolean isImageValid(Bitmap bitmap) {
-        Mat mat = new Mat();
-        org.opencv.android.Utils.bitmapToMat(bitmap, mat);
-
-        // Convertir a escala de grises
-        Mat gray = new Mat();
-        Imgproc.cvtColor(mat, gray, Imgproc.COLOR_BGR2GRAY);
-
-        // Calcular el brillo promedio
-        Scalar mean = org.opencv.core.Core.mean(gray);
-        return mean.val[0] >= 30; // Si el brillo promedio es menor que 30, la imagen es demasiado oscura
-    }
-
-    private void processAutomataImage(Bitmap bitmap) {
-        Mat mat = new Mat();
-        org.opencv.android.Utils.bitmapToMat(bitmap, mat);
-
-        // Redimensionar la imagen si es demasiado grande
-        if (mat.width() > 1080 || mat.height() > 1080) {
-            Mat resized = new Mat();
-            Imgproc.resize(mat, resized, new Size(1080, 1080));
-            mat = resized;
-        }
-
-        // Convertir a escala de grises
-        Mat gray = new Mat();
-        Imgproc.cvtColor(mat, gray, Imgproc.COLOR_BGR2GRAY);
-
-        // Aplicar umbralización adaptativa
-        Mat threshold = new Mat();
-        Imgproc.adaptiveThreshold(gray, threshold, 255, Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, 11, 2);
-
-        // Encontrar contornos
-        List<MatOfPoint> contours = new ArrayList<>();
+    // Método para obtener la orientación de la imagen usando EXIF
+    private int getExifOrientation(String imagePath) {
         try {
-            Imgproc.findContours(threshold, contours, new Mat(), Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
-        } catch (Exception e) {
-            Log.e("OpenCV", "Error en findContours: " + e.getMessage());
-            Toast.makeText(this, "No se pudo procesar la imagen debido a un error interno.", Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        if (contours.isEmpty()) {
-            Toast.makeText(this, "No se detectó un autómata válido", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        // Dibujar contornos detectados para depuración
-        Mat drawing = Mat.zeros(threshold.size(), CvType.CV_8UC3);
-        for (int i = 0; i < contours.size(); i++) {
-            Imgproc.drawContours(drawing, contours, i, new Scalar(0, 255, 0), 2);
-        }
-
-        // Convertir de vuelta a Bitmap y mostrarlo
-        Bitmap resultBitmap = Bitmap.createBitmap(drawing.cols(), drawing.rows(), Bitmap.Config.ARGB_8888);
-        org.opencv.android.Utils.matToBitmap(drawing, resultBitmap);
-        imageView.setImageBitmap(resultBitmap);
-
-        // Llama al OCR después del preprocesamiento
-        extractTextWithOCR(bitmap);
-    }
-
-
-    private void extractTextWithOCR(Bitmap bitmap) {
-        InputImage image = InputImage.fromBitmap(bitmap, 0);
-        TextRecognizer recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-
-        recognizer.process(image)
-                .addOnSuccessListener(this::configureAutomata)
-                .addOnFailureListener(e -> Log.e("OCR", "Error al procesar la imagen", e));
-    }
-
-    private void configureAutomata(Text visionText) {
-        List<Estado> estados = new ArrayList<>();
-        Estado inicial = null;
-
-        for (Text.TextBlock block : visionText.getTextBlocks()) {
-            String text = block.getText();
-            Log.d("OCR", "Texto detectado: " + text);
-
-            // Detectar estados (por ejemplo, s0, s1, etc.)
-            if (text.matches("s\\d+")) {
-                Estado estado = new Estado(text, text.contains("1")); // Suponemos que "1" en el texto indica estado final
-                estados.add(estado);
-
-                // Determinar si es inicial (basado en posición u otros criterios)
-                if (text.equals("s0")) {
-                    inicial = estado;
-                }
-            }
-        }
-
-        if (estados.size() >= 2 && inicial != null) {
-            automata = new Automata(inicial);
-            for (Estado estado : estados) {
-                // Aquí puedes añadir transiciones (ejemplo básico)
-                estado.agregarTransicion('0', inicial); // Transiciones ficticias
-                estado.agregarTransicion('1', estados.get(1));
-            }
-            tvResult.setText("Autómata configurado con éxito.");
-        } else {
-            tvResult.setText("No se pudo configurar el autómata.");
+            ExifInterface exif = new ExifInterface(imagePath);
+            return exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+        } catch (IOException e) {
+            Log.e("Exif", "Error al obtener orientación EXIF", e);
+            return ExifInterface.ORIENTATION_NORMAL; // Valor por defecto
         }
     }
 
-    private void simulateString() {
-        if (automata == null) {
-            Toast.makeText(this, "Primero capture un autómata", Toast.LENGTH_SHORT).show();
-            return;
+    // Método para rotar la imagen si es necesario
+    private Bitmap rotateImageIfNeeded(Bitmap bitmap, int orientation) {
+        Matrix matrix = new Matrix();
+        switch (orientation) {
+            case ExifInterface.ORIENTATION_ROTATE_90:
+                matrix.postRotate(90);
+                break;
+            case ExifInterface.ORIENTATION_ROTATE_180:
+                matrix.postRotate(180);
+                break;
+            case ExifInterface.ORIENTATION_ROTATE_270:
+                matrix.postRotate(270);
+                break;
+            case ExifInterface.ORIENTATION_NORMAL:
+            default:
+                return bitmap; // No es necesario rotar
+        }
+        // Crear una nueva imagen rotada
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+    }
+
+    private void detectAutomata(Bitmap bitmap) {
+        mFotoOriginal = new Mat();
+        Utils.bitmapToMat(bitmap, mFotoOriginal);
+
+        mFotoGrises = new Mat();
+        Imgproc.cvtColor(mFotoOriginal, mFotoGrises, Imgproc.COLOR_RGB2GRAY);
+
+        Mat binaryImage = new Mat();
+        Imgproc.threshold(mFotoGrises, binaryImage, 0, 255, Imgproc.THRESH_OTSU | Imgproc.THRESH_BINARY_INV);
+
+        //Se utiliza para definir un elemento estructural rectangular
+        Mat kernel_rect = getStructuringElement(Imgproc.MORPH_RECT, new Size(8, 8));
+        Mat mElementoRectangular = new Mat();
+        Imgproc.dilate(binaryImage, mElementoRectangular, kernel_rect);
+        binaryImage.release();
+
+        List<MatOfPoint> contours = new ArrayList<>();
+        Imgproc.findContours(mElementoRectangular, contours, new Mat(), Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
+        mElementoRectangular.release();
+
+        for (MatOfPoint contour : contours) {
+            Rect boundingBox = Imgproc.boundingRect(contour);
+            Imgproc.rectangle(mFotoOriginal, boundingBox.tl(), boundingBox.br(), new Scalar(0, 255, 0), 2);
         }
 
-        String input = inputString.getText().toString();
-        boolean accepted = automata.simularCadena(input);
+        guardarMat(mFotoOriginal, "contornos");
 
-        tvResult.setText(accepted ? "Cadena aceptada" : "Cadena no aceptada");
+        liberarRecursos();
+    }
+
+    private void liberarRecurso(Mat recurso) {
+        recurso.release();
+    }
+
+    private void liberarRecursos() {
+        if (mFotoOriginal != null) mFotoOriginal.release();
+        if (mFotoGrises != null) mFotoGrises.release();
+    }
+
+    private void simulateAutomata(String input) {
+        // Simulando el autómata
+        boolean result = input.matches("[01]+"); // Solo acepta cadenas con 0s y 1s
+        tvResult.setText(result ? "Cadena válida" : "Cadena no válida");
     }
 }
