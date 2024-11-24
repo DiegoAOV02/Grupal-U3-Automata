@@ -389,41 +389,49 @@ public class MainActivity extends AppCompatActivity {
         Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
         Imgproc.dilate(edges, dilatedEdges, kernel);
 
-        // Intentar detectar círculos grandes con la Transformada de Hough
+        // Detectar círculos con la Transformada de Hough
         Mat circles = new Mat();
         Imgproc.HoughCircles(
-                dilatedEdges,                // Imagen binaria de bordes
-                circles,                     // Salida de círculos detectados
-                Imgproc.HOUGH_GRADIENT,      // Método de detección
-                1.0,                         // Resolución inversa del acumulador
-                (double) mFotoGrises.rows() / 8, // Distancia mínima entre centros de los círculos
-                100,                         // Umbral superior para Canny
-                40,                          // Umbral acumulador para detección
-                80,                          // Radio mínimo (ajustar según tamaño de círculos)
-                300                          // Radio máximo para capturar círculos grandes
+                dilatedEdges,
+                circles,
+                Imgproc.HOUGH_GRADIENT,
+                1.0,
+                (double) mFotoGrises.rows() / 8,
+                100,  // Umbral superior para Canny
+                40,   // Umbral acumulador
+                80,   // Radio mínimo
+                300   // Radio máximo
         );
 
-        // Dibujar círculos detectados por Hough
+        // Listas para guardar detalles de los círculos detectados
+        List<Circle> detectedCircles = new ArrayList<>();
+
+        // Procesar los círculos detectados
         if (circles.cols() > 0) {
             for (int i = 0; i < circles.cols(); i++) {
                 double[] circleParams = circles.get(0, i);
                 if (circleParams == null) continue;
 
-                // Extraer parámetros del círculo
                 Point center = new Point(circleParams[0], circleParams[1]);
                 int radius = (int) Math.round(circleParams[2]);
 
-                // Dibujar el círculo en la imagen
+                // Añadir a la lista de círculos detectados
+                detectedCircles.add(new Circle(center, radius));
+
+                // Dibujar el círculo detectado
                 Imgproc.circle(mFotoOriginal, center, radius, new Scalar(0, 255, 0), 3);
-                Imgproc.circle(mFotoOriginal, center, 3, new Scalar(255, 0, 0), 3); // Marcar el centro
+                Imgproc.circle(mFotoOriginal, center, 3, new Scalar(255, 0, 0), 3); // Centro
             }
         }
 
-        // Si los círculos grandes no se detectaron, usar contornos como respaldo
-        detectLargeCirclesUsingContours(dilatedEdges);
+        // Detectar círculos grandes con contornos como respaldo
+        detectLargeCirclesUsingContours(dilatedEdges, detectedCircles);
+
+        // Identificar el estado inicial y final
+        detectInitialAndFinalStates(detectedCircles);
 
         // Guardar la imagen procesada
-        guardarMat(mFotoOriginal, "circulos_detectados_mejorados");
+        guardarMat(mFotoOriginal, "automata_estados_detectados");
 
         // Liberar recursos
         blurredMat.release();
@@ -433,8 +441,45 @@ public class MainActivity extends AppCompatActivity {
         liberarRecursos();
     }
 
-    // Método para detectar círculos grandes usando contornos
-    private void detectLargeCirclesUsingContours(Mat edges) {
+    // Detectar el estado inicial y final
+    private void detectInitialAndFinalStates(List<Circle> circles) {
+        Circle initialState = null;
+        Circle finalState = null;
+
+        // Identificar el estado inicial como el círculo con mayor grosor o área
+        double maxRadius = 0;
+        for (Circle circle : circles) {
+            if (circle.radius > maxRadius) {
+                maxRadius = circle.radius;
+                initialState = circle;
+            }
+        }
+
+        // Identificar el estado final como un círculo con un contorno adicional
+        for (Circle circle : circles) {
+            for (Circle other : circles) {
+                if (circle != other) {
+                    double distance = Math.sqrt(Math.pow(circle.center.x - other.center.x, 2)
+                            + Math.pow(circle.center.y - other.center.y, 2));
+                    if (distance < Math.abs(circle.radius - other.radius) && circle.radius < other.radius) {
+                        finalState = other;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Dibujar el estado inicial en azul y el estado final en rojo
+        if (initialState != null) {
+            Imgproc.circle(mFotoOriginal, initialState.center, initialState.radius, new Scalar(255, 0, 0), 5); // Azul
+        }
+        if (finalState != null) {
+            Imgproc.circle(mFotoOriginal, finalState.center, finalState.radius, new Scalar(0, 0, 255), 5); // Rojo
+        }
+    }
+
+    // Detectar círculos grandes usando contornos
+    private void detectLargeCirclesUsingContours(Mat edges, List<Circle> circles) {
         List<MatOfPoint> contours = new ArrayList<>();
         Imgproc.findContours(edges, contours, new Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
 
@@ -454,11 +499,25 @@ public class MainActivity extends AppCompatActivity {
                     );
                     int radius = (int) (boundingBox.width / 2.0);
 
+                    // Añadir a la lista de círculos
+                    circles.add(new Circle(center, radius));
+
                     // Dibujar el círculo detectado
-                    Imgproc.circle(mFotoOriginal, center, radius, new Scalar(255, 0, 0), 3);
+                    Imgproc.circle(mFotoOriginal, center, radius, new Scalar(0, 255, 255), 3);
                 }
             }
             contour.release();
+        }
+    }
+
+    // Clase para representar un círculo detectado
+    class Circle {
+        Point center;
+        int radius;
+
+        Circle(Point center, int radius) {
+            this.center = center;
+            this.radius = radius;
         }
     }
 
