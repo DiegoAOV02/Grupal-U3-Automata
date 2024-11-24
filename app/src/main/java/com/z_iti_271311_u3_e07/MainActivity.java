@@ -1,4 +1,4 @@
-package com.automatas;
+package com.z_iti_271311_u3_e07;
 
 import static org.opencv.imgproc.Imgproc.getStructuringElement;
 
@@ -256,7 +256,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 photoURI = FileProvider.getUriForFile(
                         this,
-                        "com.automatas.fileprovider", // Asegúrate de que coincide con el authority definido
+                        "com.z_iti_271311_u3_e07.fileprovider", // Asegúrate de que coincide con el authority definido
                         photoFile
                 );
                 cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI);
@@ -325,6 +325,8 @@ public class MainActivity extends AppCompatActivity {
                 // Procesar la imagen para detectar formas
                 detectAutomata(rotatedBitmap);
 
+//                detectCircles(rotatedBitmap);
+
                 // Mostrar la imagen capturada (ahora con la orientación correcta)
                 imageView.setImageBitmap(rotatedBitmap);
             } catch (Exception e) {
@@ -366,33 +368,98 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void detectAutomata(Bitmap bitmap) {
+        // Convertir el bitmap a Mat
         mFotoOriginal = new Mat();
         Utils.bitmapToMat(bitmap, mFotoOriginal);
 
+        // Convertir la imagen a escala de grises
         mFotoGrises = new Mat();
         Imgproc.cvtColor(mFotoOriginal, mFotoGrises, Imgproc.COLOR_RGB2GRAY);
 
-        Mat binaryImage = new Mat();
-        Imgproc.threshold(mFotoGrises, binaryImage, 0, 255, Imgproc.THRESH_OTSU | Imgproc.THRESH_BINARY_INV);
+        // Aplicar desenfoque para reducir ruido y destacar bordes
+        Mat blurredMat = new Mat();
+        Imgproc.GaussianBlur(mFotoGrises, blurredMat, new Size(9, 9), 2);
 
-        //Se utiliza para definir un elemento estructural rectangular
-        Mat kernel_rect = getStructuringElement(Imgproc.MORPH_RECT, new Size(8, 8));
-        Mat mElementoRectangular = new Mat();
-        Imgproc.dilate(binaryImage, mElementoRectangular, kernel_rect);
-        binaryImage.release();
+        // Detectar bordes con Canny
+        Mat edges = new Mat();
+        Imgproc.Canny(blurredMat, edges, 50, 150);
 
-        List<MatOfPoint> contours = new ArrayList<>();
-        Imgproc.findContours(mElementoRectangular, contours, new Mat(), Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
-        mElementoRectangular.release();
+        // Dilatar bordes para reforzar contornos
+        Mat dilatedEdges = new Mat();
+        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
+        Imgproc.dilate(edges, dilatedEdges, kernel);
 
-        for (MatOfPoint contour : contours) {
-            Rect boundingBox = Imgproc.boundingRect(contour);
-            Imgproc.rectangle(mFotoOriginal, boundingBox.tl(), boundingBox.br(), new Scalar(0, 255, 0), 2);
+        // Intentar detectar círculos grandes con la Transformada de Hough
+        Mat circles = new Mat();
+        Imgproc.HoughCircles(
+                dilatedEdges,                // Imagen binaria de bordes
+                circles,                     // Salida de círculos detectados
+                Imgproc.HOUGH_GRADIENT,      // Método de detección
+                1.0,                         // Resolución inversa del acumulador
+                (double) mFotoGrises.rows() / 8, // Distancia mínima entre centros de los círculos
+                100,                         // Umbral superior para Canny
+                40,                          // Umbral acumulador para detección
+                80,                          // Radio mínimo (ajustar según tamaño de círculos)
+                300                          // Radio máximo para capturar círculos grandes
+        );
+
+        // Dibujar círculos detectados por Hough
+        if (circles.cols() > 0) {
+            for (int i = 0; i < circles.cols(); i++) {
+                double[] circleParams = circles.get(0, i);
+                if (circleParams == null) continue;
+
+                // Extraer parámetros del círculo
+                Point center = new Point(circleParams[0], circleParams[1]);
+                int radius = (int) Math.round(circleParams[2]);
+
+                // Dibujar el círculo en la imagen
+                Imgproc.circle(mFotoOriginal, center, radius, new Scalar(0, 255, 0), 3);
+                Imgproc.circle(mFotoOriginal, center, 3, new Scalar(255, 0, 0), 3); // Marcar el centro
+            }
         }
 
-        guardarMat(mFotoOriginal, "contornos");
+        // Si los círculos grandes no se detectaron, usar contornos como respaldo
+        detectLargeCirclesUsingContours(dilatedEdges);
 
+        // Guardar la imagen procesada
+        guardarMat(mFotoOriginal, "circulos_detectados_mejorados");
+
+        // Liberar recursos
+        blurredMat.release();
+        edges.release();
+        dilatedEdges.release();
+        circles.release();
         liberarRecursos();
+    }
+
+    // Método para detectar círculos grandes usando contornos
+    private void detectLargeCirclesUsingContours(Mat edges) {
+        List<MatOfPoint> contours = new ArrayList<>();
+        Imgproc.findContours(edges, contours, new Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+
+        for (MatOfPoint contour : contours) {
+            MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
+            double perimeter = Imgproc.arcLength(contour2f, true);
+            double area = Imgproc.contourArea(contour);
+
+            // Filtrar por área y circularidad
+            if (area > 10000 && area < 200000) { // Detectar círculos grandes
+                double circularity = (4 * Math.PI * area) / (perimeter * perimeter);
+                if (circularity > 0.7) { // Confirmar forma circular
+                    Rect boundingBox = Imgproc.boundingRect(contour);
+                    Point center = new Point(
+                            boundingBox.x + boundingBox.width / 2.0,
+                            boundingBox.y + boundingBox.height / 2.0
+                    );
+                    int radius = (int) (boundingBox.width / 2.0);
+
+                    // Dibujar el círculo detectado
+                    Imgproc.circle(mFotoOriginal, center, radius, new Scalar(255, 0, 0), 3);
+                }
+            }
+            contour.release();
+        }
     }
 
     private void liberarRecurso(Mat recurso) {
