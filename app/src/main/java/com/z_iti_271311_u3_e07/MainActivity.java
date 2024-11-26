@@ -445,8 +445,9 @@ public class MainActivity extends AppCompatActivity {
     private void detectInitialAndFinalStates(List<Circle> circles) {
         Circle initialState = null;
         Circle finalState = null;
+        List<Circle> detectedFinalStates = new ArrayList<>(); // Para soportar múltiples estados finales.
 
-        // Identificar el estado inicial como el círculo con mayor grosor o área
+        // Detectar el estado inicial como el círculo con mayor densidad de contorno (mayor radio)
         double maxRadius = 0;
         for (Circle circle : circles) {
             if (circle.radius > maxRadius) {
@@ -455,26 +456,52 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // Identificar el estado final como un círculo con un contorno adicional
-        for (Circle circle : circles) {
-            for (Circle other : circles) {
-                if (circle != other) {
-                    double distance = Math.sqrt(Math.pow(circle.center.x - other.center.x, 2)
-                            + Math.pow(circle.center.y - other.center.y, 2));
-                    if (distance < Math.abs(circle.radius - other.radius) && circle.radius < other.radius) {
-                        finalState = other;
-                        break;
+        // Detectar estados finales como círculos concéntricos
+        for (Circle outerCircle : circles) {
+            for (Circle innerCircle : circles) {
+                if (outerCircle != innerCircle) {
+                    double distance = Math.sqrt(
+                            Math.pow(outerCircle.center.x - innerCircle.center.x, 2)
+                                    + Math.pow(outerCircle.center.y - innerCircle.center.y, 2)
+                    );
+
+                    // Verificar si son concéntricos
+                    if (distance < 5 && Math.abs(outerCircle.radius - innerCircle.radius) > 10) {
+                        if (!detectedFinalStates.contains(outerCircle)) {
+                            detectedFinalStates.add(outerCircle);
+                        }
                     }
                 }
             }
         }
 
-        // Dibujar el estado inicial en azul y el estado final en rojo
+        // Dibujar el estado inicial en verde
         if (initialState != null) {
-            Imgproc.circle(mFotoOriginal, initialState.center, initialState.radius, new Scalar(255, 0, 0), 5); // Azul
+            Imgproc.circle(mFotoOriginal, initialState.center, initialState.radius, new Scalar(0, 255, 0), 5); // Verde
+            Imgproc.putText(mFotoOriginal, "Inicial", new Point(initialState.center.x - 20, initialState.center.y - 20),
+                    Imgproc.FONT_HERSHEY_SIMPLEX, 1, new Scalar(0, 255, 0), 2);
         }
-        if (finalState != null) {
-            Imgproc.circle(mFotoOriginal, finalState.center, finalState.radius, new Scalar(0, 0, 255), 5); // Rojo
+
+        // Dibujar los estados finales en Rojo
+//        if (finalState != null) {
+//            Imgproc.circle(mFotoOriginal, finalState.center, finalState.radius, new Scalar(255, 0, 0), 5); // Rojo
+//            Imgproc.putText(mFotoOriginal, "Final", new Point(finalState.center.x - 20, finalState.center.y - 20),
+//                    Imgproc.FONT_HERSHEY_SIMPLEX, 1, new Scalar(255, 0, 0), 2);
+//        }
+        // Dibujar los estados finales en Rojo
+        for (Circle finalCircle : detectedFinalStates) {
+            Imgproc.circle(mFotoOriginal, finalCircle.center, finalCircle.radius, new Scalar(255, 0, 0), 5); // Rojo
+            Imgproc.putText(mFotoOriginal, "Final", new Point(finalCircle.center.x - 20, finalCircle.center.y - 20),
+                    Imgproc.FONT_HERSHEY_SIMPLEX, 1, new Scalar(255, 0, 0), 2);
+        }
+
+        // Dibujar otros estados en Azul
+        for (Circle circle : circles) {
+            if (!circle.equals(initialState) && !detectedFinalStates.contains(circle)) {
+                Imgproc.circle(mFotoOriginal, circle.center, circle.radius, new Scalar(0, 0, 255), 5); // Azul
+                Imgproc.putText(mFotoOriginal, "Estado", new Point(circle.center.x - 20, circle.center.y - 20),
+                        Imgproc.FONT_HERSHEY_SIMPLEX, 1, new Scalar(0, 0, 255), 2);
+            }
         }
     }
 
