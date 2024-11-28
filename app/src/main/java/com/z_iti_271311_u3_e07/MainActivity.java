@@ -1,4 +1,4 @@
-package com.z_iti_271311_u3_e07;
+package com.automatas;
 
 import static org.opencv.imgproc.Imgproc.getStructuringElement;
 
@@ -9,8 +9,6 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Matrix;
-import android.media.ExifInterface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -32,20 +30,9 @@ import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import org.opencv.android.OpenCVLoader;
-import org.opencv.android.Utils;
-import org.opencv.core.Mat;
-import org.opencv.core.MatOfPoint;
-import org.opencv.core.MatOfPoint2f;
-import org.opencv.core.Point;
-import org.opencv.core.Rect;
-import org.opencv.core.Scalar;
-import org.opencv.core.Size;
-import org.opencv.imgproc.Imgproc;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -64,9 +51,7 @@ public class MainActivity extends AppCompatActivity {
     private String currentPhotoPath;
     private Uri photoURI;
 
-    //Matrices necesarias
-    private Mat mFotoOriginal;
-    private Mat mFotoGrises;
+    ExtractorDatosImagen extractorDatosImagen;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -174,7 +159,7 @@ public class MainActivity extends AppCompatActivity {
 
             if (allGranted) {
                 // Si todos los permisos fueron concedidos, proceder con la operación
-                openCamera();
+                //openCamera();
             } else {
                 Toast.makeText(this,
                         "Se requieren permisos para usar la cámara",
@@ -200,45 +185,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    public void guardarMat(Mat matriz, String nombre) {
-        Bitmap bitmap = Bitmap.createBitmap(matriz.cols(), matriz.rows(), Bitmap.Config.ARGB_8888);
-        Utils.matToBitmap(matriz, bitmap);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // Código original para Android 14+
-            //Toast.makeText(this, "Version 14", Toast.LENGTH_SHORT).show();
-            File directorio = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
-            File archivoImagen = new File(directorio, nombre + ".jpg");
-            try (FileOutputStream out = new FileOutputStream(archivoImagen)) {
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out);
-                Toast.makeText(this, archivoImagen.getAbsolutePath(), Toast.LENGTH_SHORT).show();
-            } catch (IOException e) {
-                e.printStackTrace();
-                Toast.makeText(this, "Error al guardar la imagen", Toast.LENGTH_SHORT).show();
-            }
-        } else {
-            //Toast.makeText(getApplicationContext(), "Versiones anteriores", Toast.LENGTH_LONG).show();
-            // Código para Android 13 y versiones anteriores
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.Images.Media.DISPLAY_NAME, nombre + ".jpg");
-            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Para Android 10 (Q) y superior pero menor a 14
-                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES);
-            }
-
-            Uri imageUri = this.getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-            if (imageUri != null) {
-                try (OutputStream out = this.getContentResolver().openOutputStream(imageUri)) {
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    Toast.makeText(this, "Error al guardar la imagen", Toast.LENGTH_SHORT).show();
-                }
-            }
-        }
-    }
 
     private void openCamera() {
         Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
@@ -256,7 +202,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 photoURI = FileProvider.getUriForFile(
                         this,
-                        "com.z_iti_271311_u3_e07.fileprovider", // Asegúrate de que coincide con el authority definido
+                        getApplicationContext().getPackageName() + ".fileprovider", // Asegúrate de que coincide con el authority definido
                         photoFile
                 );
                 cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI);
@@ -310,251 +256,28 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-
         if (requestCode == CAMERA_REQUEST_CODE && resultCode == RESULT_OK) {
             // Procesar la imagen
             try {
                 Bitmap bitmap = BitmapFactory.decodeFile(currentPhotoPath);
 
-                // Obtener la orientación de la imagen desde los metadatos EXIF
-                int orientation = getExifOrientation(currentPhotoPath);
+                if (bitmap != null) {
+                    extractorDatosImagen = new ExtractorDatosImagen(getApplicationContext(), currentPhotoPath, bitmap);
+                    // Obtener la orientación de la imagen desde los metadatos EXIF
+                    int orientation = extractorDatosImagen.getExifOrientation(currentPhotoPath);
 
-                // Rotar la imagen si es necesario
-                Bitmap rotatedBitmap = rotateImageIfNeeded(bitmap, orientation);
+                    // Rotar la imagen si es necesario
+                    Bitmap rotatedBitmap = extractorDatosImagen.rotateImageIfNeeded(bitmap, orientation);
 
-                // Procesar la imagen para detectar formas
-                detectAutomata(rotatedBitmap);
-
-//                detectCircles(rotatedBitmap);
-
-                // Mostrar la imagen capturada (ahora con la orientación correcta)
-                imageView.setImageBitmap(rotatedBitmap);
+                    // Mostrar la imagen capturada (ahora con la orientación correcta)
+                    imageView.setImageBitmap(rotatedBitmap);
+                    extractorDatosImagen.extraerDatos(extractorDatosImagen.getImagenOriginal());
+                }
             } catch (Exception e) {
                 Log.e("Camera", "Error al procesar la imagen", e);
+                Toast.makeText(getApplicationContext(), "Error al procesar la imagen", Toast.LENGTH_LONG).show();
             }
         }
-    }
-
-    // Método para obtener la orientación de la imagen usando EXIF
-    private int getExifOrientation(String imagePath) {
-        try {
-            ExifInterface exif = new ExifInterface(imagePath);
-            return exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
-        } catch (IOException e) {
-            Log.e("Exif", "Error al obtener orientación EXIF", e);
-            return ExifInterface.ORIENTATION_NORMAL; // Valor por defecto
-        }
-    }
-
-    // Método para rotar la imagen si es necesario
-    private Bitmap rotateImageIfNeeded(Bitmap bitmap, int orientation) {
-        Matrix matrix = new Matrix();
-        switch (orientation) {
-            case ExifInterface.ORIENTATION_ROTATE_90:
-                matrix.postRotate(90);
-                break;
-            case ExifInterface.ORIENTATION_ROTATE_180:
-                matrix.postRotate(180);
-                break;
-            case ExifInterface.ORIENTATION_ROTATE_270:
-                matrix.postRotate(270);
-                break;
-            case ExifInterface.ORIENTATION_NORMAL:
-            default:
-                return bitmap; // No es necesario rotar
-        }
-        // Crear una nueva imagen rotada
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
-    }
-
-    private void detectAutomata(Bitmap bitmap) {
-        // Convertir el bitmap a Mat
-        mFotoOriginal = new Mat();
-        Utils.bitmapToMat(bitmap, mFotoOriginal);
-
-        // Convertir la imagen a escala de grises
-        mFotoGrises = new Mat();
-        Imgproc.cvtColor(mFotoOriginal, mFotoGrises, Imgproc.COLOR_RGB2GRAY);
-
-        // Aplicar desenfoque para reducir ruido y destacar bordes
-        Mat blurredMat = new Mat();
-        Imgproc.GaussianBlur(mFotoGrises, blurredMat, new Size(9, 9), 2);
-
-        // Detectar bordes con Canny
-        Mat edges = new Mat();
-        Imgproc.Canny(blurredMat, edges, 50, 150);
-
-        // Dilatar bordes para reforzar contornos
-        Mat dilatedEdges = new Mat();
-        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
-        Imgproc.dilate(edges, dilatedEdges, kernel);
-
-        // Detectar círculos con la Transformada de Hough
-        Mat circles = new Mat();
-        Imgproc.HoughCircles(
-                dilatedEdges,
-                circles,
-                Imgproc.HOUGH_GRADIENT,
-                1.0,
-                (double) mFotoGrises.rows() / 8,
-                100,  // Umbral superior para Canny
-                40,   // Umbral acumulador
-                80,   // Radio mínimo
-                300   // Radio máximo
-        );
-
-        // Listas para guardar detalles de los círculos detectados
-        List<Circle> detectedCircles = new ArrayList<>();
-
-        // Procesar los círculos detectados
-        if (circles.cols() > 0) {
-            for (int i = 0; i < circles.cols(); i++) {
-                double[] circleParams = circles.get(0, i);
-                if (circleParams == null) continue;
-
-                Point center = new Point(circleParams[0], circleParams[1]);
-                int radius = (int) Math.round(circleParams[2]);
-
-                // Añadir a la lista de círculos detectados
-                detectedCircles.add(new Circle(center, radius));
-
-                // Dibujar el círculo detectado
-                Imgproc.circle(mFotoOriginal, center, radius, new Scalar(0, 255, 0), 3);
-                Imgproc.circle(mFotoOriginal, center, 3, new Scalar(255, 0, 0), 3); // Centro
-            }
-        }
-
-        // Detectar círculos grandes con contornos como respaldo
-        detectLargeCirclesUsingContours(dilatedEdges, detectedCircles);
-
-        // Identificar el estado inicial y final
-        detectInitialAndFinalStates(detectedCircles);
-
-        // Guardar la imagen procesada
-        guardarMat(mFotoOriginal, "automata_estados_detectados");
-
-        // Liberar recursos
-        blurredMat.release();
-        edges.release();
-        dilatedEdges.release();
-        circles.release();
-        liberarRecursos();
-    }
-
-    // Detectar el estado inicial y final
-    private void detectInitialAndFinalStates(List<Circle> circles) {
-        Circle initialState = null;
-        Circle finalState = null;
-        List<Circle> detectedFinalStates = new ArrayList<>(); // Para soportar múltiples estados finales.
-
-        // Detectar el estado inicial como el círculo con mayor densidad de contorno (mayor radio)
-        double maxRadius = 0;
-        for (Circle circle : circles) {
-            if (circle.radius > maxRadius) {
-                maxRadius = circle.radius;
-                initialState = circle;
-            }
-        }
-
-        // Detectar estados finales como círculos concéntricos
-        for (Circle outerCircle : circles) {
-            for (Circle innerCircle : circles) {
-                if (outerCircle != innerCircle) {
-                    double distance = Math.sqrt(
-                            Math.pow(outerCircle.center.x - innerCircle.center.x, 2)
-                                    + Math.pow(outerCircle.center.y - innerCircle.center.y, 2)
-                    );
-
-                    // Verificar si son concéntricos
-                    if (distance < 5 && Math.abs(outerCircle.radius - innerCircle.radius) > 10) {
-                        if (!detectedFinalStates.contains(outerCircle)) {
-                            detectedFinalStates.add(outerCircle);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Dibujar el estado inicial en verde
-        if (initialState != null) {
-            Imgproc.circle(mFotoOriginal, initialState.center, initialState.radius, new Scalar(0, 255, 0), 5); // Verde
-            Imgproc.putText(mFotoOriginal, "Inicial", new Point(initialState.center.x - 20, initialState.center.y - 20),
-                    Imgproc.FONT_HERSHEY_SIMPLEX, 1, new Scalar(0, 255, 0), 2);
-        }
-
-        // Dibujar los estados finales en Rojo
-//        if (finalState != null) {
-//            Imgproc.circle(mFotoOriginal, finalState.center, finalState.radius, new Scalar(255, 0, 0), 5); // Rojo
-//            Imgproc.putText(mFotoOriginal, "Final", new Point(finalState.center.x - 20, finalState.center.y - 20),
-//                    Imgproc.FONT_HERSHEY_SIMPLEX, 1, new Scalar(255, 0, 0), 2);
-//        }
-        // Dibujar los estados finales en Rojo
-        for (Circle finalCircle : detectedFinalStates) {
-            Imgproc.circle(mFotoOriginal, finalCircle.center, finalCircle.radius, new Scalar(255, 0, 0), 5); // Rojo
-            Imgproc.putText(mFotoOriginal, "Final", new Point(finalCircle.center.x - 20, finalCircle.center.y - 20),
-                    Imgproc.FONT_HERSHEY_SIMPLEX, 1, new Scalar(255, 0, 0), 2);
-        }
-
-        // Dibujar otros estados en Azul
-        for (Circle circle : circles) {
-            if (!circle.equals(initialState) && !detectedFinalStates.contains(circle)) {
-                Imgproc.circle(mFotoOriginal, circle.center, circle.radius, new Scalar(0, 0, 255), 5); // Azul
-                Imgproc.putText(mFotoOriginal, "Estado", new Point(circle.center.x - 20, circle.center.y - 20),
-                        Imgproc.FONT_HERSHEY_SIMPLEX, 1, new Scalar(0, 0, 255), 2);
-            }
-        }
-    }
-
-    // Detectar círculos grandes usando contornos
-    private void detectLargeCirclesUsingContours(Mat edges, List<Circle> circles) {
-        List<MatOfPoint> contours = new ArrayList<>();
-        Imgproc.findContours(edges, contours, new Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
-
-        for (MatOfPoint contour : contours) {
-            MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
-            double perimeter = Imgproc.arcLength(contour2f, true);
-            double area = Imgproc.contourArea(contour);
-
-            // Filtrar por área y circularidad
-            if (area > 10000 && area < 200000) { // Detectar círculos grandes
-                double circularity = (4 * Math.PI * area) / (perimeter * perimeter);
-                if (circularity > 0.7) { // Confirmar forma circular
-                    Rect boundingBox = Imgproc.boundingRect(contour);
-                    Point center = new Point(
-                            boundingBox.x + boundingBox.width / 2.0,
-                            boundingBox.y + boundingBox.height / 2.0
-                    );
-                    int radius = (int) (boundingBox.width / 2.0);
-
-                    // Añadir a la lista de círculos
-                    circles.add(new Circle(center, radius));
-
-                    // Dibujar el círculo detectado
-                    Imgproc.circle(mFotoOriginal, center, radius, new Scalar(0, 255, 255), 3);
-                }
-            }
-            contour.release();
-        }
-    }
-
-    // Clase para representar un círculo detectado
-    class Circle {
-        Point center;
-        int radius;
-
-        Circle(Point center, int radius) {
-            this.center = center;
-            this.radius = radius;
-        }
-    }
-
-    private void liberarRecurso(Mat recurso) {
-        recurso.release();
-    }
-
-    private void liberarRecursos() {
-        if (mFotoOriginal != null) mFotoOriginal.release();
-        if (mFotoGrises != null) mFotoGrises.release();
     }
 
     private void simulateAutomata(String input) {
