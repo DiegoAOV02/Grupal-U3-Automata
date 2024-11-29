@@ -272,6 +272,18 @@ public class MainActivity extends AppCompatActivity {
                     // Mostrar la imagen capturada (ahora con la orientación correcta)
                     imageView.setImageBitmap(rotatedBitmap);
                     extractorDatosImagen.extraerDatos(extractorDatosImagen.getImagenOriginal());
+                    if (extractorDatosImagen.isAutomata()){
+                        //Dibujar automata
+                        Automata automata = new Automata();
+                        automata.setEstadoInicial(extractorDatosImagen.getEstadoInicial());
+                        automata.setListaEstadosFinales(extractorDatosImagen.getEstadosFinales());
+                        automata.setListaEstadosNormales(extractorDatosImagen.getEstados());
+                        automata.setListaTransiciones(extractorDatosImagen.getTransiciones());
+
+                        //Limpiar lista
+                        extractorDatosImagen.limpiarDatos();
+                        //Hacer recorrido
+                    }
                 }
             } catch (Exception e) {
                 Log.e("Camera", "Error al procesar la imagen", e);
