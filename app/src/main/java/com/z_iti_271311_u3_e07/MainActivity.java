@@ -1,6 +1,4 @@
-package com.automatas;
-
-import static org.opencv.imgproc.Imgproc.getStructuringElement;
+package com.z_iti_271311_u3_e07;
 
 import android.Manifest;
 import android.app.AlertDialog;
@@ -262,7 +260,7 @@ public class MainActivity extends AppCompatActivity {
                 Bitmap bitmap = BitmapFactory.decodeFile(currentPhotoPath);
 
                 if (bitmap != null) {
-                    extractorDatosImagen = new ExtractorDatosImagen(getApplicationContext(), currentPhotoPath, bitmap);
+                    extractorDatosImagen = new ExtractorDatosImagen(getApplicationContext(), currentPhotoPath, bitmap,drawingView);
                     // Obtener la orientación de la imagen desde los metadatos EXIF
                     int orientation = extractorDatosImagen.getExifOrientation(currentPhotoPath);
 

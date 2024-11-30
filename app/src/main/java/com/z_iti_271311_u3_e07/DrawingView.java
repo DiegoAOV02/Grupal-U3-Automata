@@ -10,56 +10,60 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class DrawingView extends View {
-
-    // Lista para almacenar las formas a dibujar
     private final List<Shape> shapes = new ArrayList<>();
 
     public DrawingView(Context context, AttributeSet attrs) {
         super(context, attrs);
     }
 
-    // Método para dibujar un círculo
     public void drawCircle(float cx, float cy, float radius, Paint paint) {
         shapes.add(new Shape(Shape.Type.CIRCLE, cx, cy, radius, paint));
-        invalidate(); // Redibujar la vista
+        invalidate();
     }
 
-    // Método para dibujar una línea
+    public void drawText(String text, float x, float y, Paint paint) {
+        shapes.add(new Shape(Shape.Type.TEXT, text, x, y, paint));
+        invalidate();
+    }
+
     public void drawLine(float startX, float startY, float endX, float endY, Paint paint) {
         shapes.add(new Shape(Shape.Type.LINE, startX, startY, endX, endY, paint));
-        invalidate(); // Redibujar la vista
+        invalidate();
     }
 
-    // Método para limpiar el lienzo
     public void clear() {
         shapes.clear();
-        invalidate(); // Redibujar la vista
+        invalidate();
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-
-        // Dibujar todas las formas almacenadas
         for (Shape shape : shapes) {
-            if (shape.type == Shape.Type.CIRCLE) {
-                canvas.drawCircle(shape.cx, shape.cy, shape.radius, shape.paint);
-            } else if (shape.type == Shape.Type.LINE) {
-                canvas.drawLine(shape.startX, shape.startY, shape.endX, shape.endY, shape.paint);
+            switch (shape.type) {
+                case CIRCLE:
+                    canvas.drawCircle(shape.cx, shape.cy, shape.radius, shape.paint);
+                    break;
+                case TEXT:
+                    canvas.drawText(shape.text, shape.startX, shape.startY, shape.paint);
+                    break;
+                case LINE:
+                    canvas.drawLine(shape.startX, shape.startY, shape.endX, shape.endY, shape.paint);
+                    break;
             }
         }
     }
 
-    // Clase interna para representar formas (círculos y líneas)
     private static class Shape {
-        enum Type { CIRCLE, LINE }
+        enum Type { CIRCLE, TEXT, LINE }
 
-        Type type; // Tipo de la forma
-        float cx, cy, radius; // Coordenadas y radio (para círculos)
-        float startX, startY, endX, endY; // Coordenadas iniciales y finales (para líneas)
-        Paint paint; // Estilo de dibujo
+        Type type;
+        float cx, cy, radius;
+        float startX, startY, endX, endY;
+        String text;
+        Paint paint;
 
-        // Constructor para un círculo
+        // Constructor para círculos
         Shape(Type type, float cx, float cy, float radius, Paint paint) {
             this.type = type;
             this.cx = cx;
@@ -68,7 +72,16 @@ public class DrawingView extends View {
             this.paint = paint;
         }
 
-        // Constructor para una línea
+        // Constructor para texto
+        Shape(Type type, String text, float x, float y, Paint paint) {
+            this.type = type;
+            this.text = text;
+            this.startX = x;
+            this.startY = y;
+            this.paint = paint;
+        }
+
+        // Constructor para líneas
         Shape(Type type, float startX, float startY, float endX, float endY, Paint paint) {
             this.type = type;
             this.startX = startX;

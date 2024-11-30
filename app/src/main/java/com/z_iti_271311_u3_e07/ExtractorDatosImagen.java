@@ -1,9 +1,11 @@
-package com.automatas;
+package com.z_iti_271311_u3_e07;
 
 import android.content.ContentValues;
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.media.ExifInterface;
 import android.net.Uri;
 import android.os.Build;
@@ -36,18 +38,20 @@ public class ExtractorDatosImagen {
     private Bitmap imagenOriginal;
     private String currentPhotoPath;
     private Context context;
-
+    private DrawingView drawingView;
     //Matrices necesarias
     private Mat mFotoOriginal;
     private Mat mFotoGrises;
 
     //Listas de elementos
-    List<Circle> detectedCircles = new ArrayList<>();
+    private List<Circle> detectedCircles = new ArrayList<>();
+    private List<Line> detectedLines = new ArrayList<>();
 
-    public ExtractorDatosImagen(Context context, String currentPhotoPath, Bitmap imagenOriginal) {
+    public ExtractorDatosImagen(Context context, String currentPhotoPath, Bitmap imagenOriginal, DrawingView drawingView) {
         this.imagenOriginal = imagenOriginal;
         this.currentPhotoPath = currentPhotoPath;
         this.context = context;
+        this.drawingView = drawingView;
     }
 
     public Bitmap getImagenOriginal() {
@@ -92,33 +96,58 @@ public class ExtractorDatosImagen {
     }
 
     private void detectAutomata(Bitmap bitmap) {
-        // Convertir el bitmap a Mat
-        mFotoOriginal = new Mat();
-        Utils.bitmapToMat(bitmap, mFotoOriginal);
+        Mat originalMat = new Mat();
+        Utils.bitmapToMat(bitmap, originalMat);
 
         // Convertir la imagen a escala de grises
-        mFotoGrises = new Mat();
-        Imgproc.cvtColor(mFotoOriginal, mFotoGrises, Imgproc.COLOR_RGB2GRAY);
+        Mat grayMat = new Mat();
+        Imgproc.cvtColor(originalMat, grayMat, Imgproc.COLOR_RGB2GRAY);
 
-        // Aplicar desenfoque para reducir ruido y destacar bordes
-        Mat blurredMat = new Mat();
-        Imgproc.GaussianBlur(mFotoGrises, blurredMat, new Size(9, 9), 2);
+        // Aplicar desenfoque para reducir ruido
+        Imgproc.GaussianBlur(grayMat, grayMat, new Size(9, 9), 2);
 
         // Detectar bordes con Canny
         Mat edges = new Mat();
-        Imgproc.Canny(blurredMat, edges, 50, 150);
+        Imgproc.Canny(grayMat, edges, 50, 150);
 
-        // Dilatar bordes para reforzar contornos
-        Mat dilatedEdges = new Mat();
-        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
-        Imgproc.dilate(edges, dilatedEdges, kernel);
+        // Detectar círculos
+        Mat circles = new Mat();
+        Imgproc.HoughCircles(grayMat, circles, Imgproc.HOUGH_GRADIENT,
+                1,          // Resolución inversa del acumulador
+                30,         // Distancia mínima entre centros de círculos
+                100,        // Umbral superior para Canny (param1)
+                50,         // Umbral acumulador para Hough (param2)
+                20,         // Radio mínimo
+                100         // Radio máximo
+        );
 
-        releaseMats(blurredMat, kernel, edges);
-        detectarTodosLosCirculos(mFotoOriginal, dilatedEdges);
+        detectedCircles.clear();
+        for (int i = 0; i < circles.cols(); i++) {
+            double[] data = circles.get(0, i);
+            if (data != null) {
+                Point center = new Point(data[0], data[1]);
+                int radius = (int) Math.round(data[2]);
 
-        guardarMat(mFotoOriginal, "imagen_resultante");
-        releaseMats(mFotoOriginal, mFotoGrises, dilatedEdges);
+                // Validar distancia mínima entre círculos detectados
+                boolean isValid = true;
+                for (Circle detected : detectedCircles) {
+                    if (Math.sqrt(Math.pow(center.x - detected.center.x, 2) +
+                            Math.pow(center.y - detected.center.y, 2)) < 20) {
+                        isValid = false;
+                        break;
+                    }
+                }
+
+                if (isValid) {
+                    detectedCircles.add(new Circle(center, radius));
+                }
+            }
+        }
+
+        // Dibujar los círculos detectados
+        drawAutomata(detectedCircles, detectedLines);
     }
+
 
     private void detectarTodosLosCirculos(Mat matriz, Mat dilatedEdges) {
         // Detectar círculos con la Transformada de Hough
@@ -432,4 +461,72 @@ public class ExtractorDatosImagen {
             this.radius = radius;
         }
     }
+    // Clase auxiliar para líneas
+    private static class Line {
+        Point start;
+        Point end;
+
+        Line(Point start, Point end) {
+            this.start = start;
+            this.end = end;
+        }
+    }
+
+    private void drawAutomata(List<Circle> circles, List<Line> lines) {
+        drawingView.clear();
+
+        // Dimensiones del DrawingView
+        int viewWidth = drawingView.getWidth();
+        int viewHeight = drawingView.getHeight();
+
+        // Dimensiones de la imagen original
+        int originalWidth = imagenOriginal.getWidth();
+        int originalHeight = imagenOriginal.getHeight();
+
+        // Escalas para ajustar las coordenadas
+        float scaleX = (float) viewWidth / originalWidth;
+        float scaleY = (float) viewHeight / originalHeight;
+
+        // Configurar pinceles
+        Paint circlePaint = new Paint();
+        circlePaint.setColor(Color.BLUE);
+        circlePaint.setStyle(Paint.Style.STROKE);
+        circlePaint.setStrokeWidth(5);
+
+        Paint textPaint = new Paint();
+        textPaint.setColor(Color.BLACK);
+        textPaint.setTextSize(40);
+
+        Paint linePaint = new Paint();
+        linePaint.setColor(Color.RED);
+        linePaint.setStrokeWidth(5);
+
+        // Dibujar círculos
+        for (Circle circle : circles) {
+            float adjustedX = (float) circle.center.x * scaleX;
+            float adjustedY = (float) circle.center.y * scaleY;
+            float adjustedRadius = circle.radius * scaleX;
+
+            Log.d("DRAW_AUTOMATA", "Dibujando círculo en: (" + adjustedX + ", " + adjustedY + ") con radio: " + adjustedRadius);
+            drawingView.drawCircle(adjustedX, adjustedY, adjustedRadius, circlePaint);
+
+            // Dibujar texto asociado
+            String stateLabel = "S" + circles.indexOf(circle);
+            drawingView.drawText(stateLabel, adjustedX - 20, adjustedY + 10, textPaint);
+        }
+
+        // Dibujar líneas
+        for (Line line : lines) {
+            float startX = (float) line.start.x * scaleX;
+            float startY = (float) line.start.y * scaleY;
+            float endX = (float) line.end.x * scaleX;
+            float endY = (float) line.end.y * scaleY;
+
+            Log.d("DRAW_AUTOMATA", "Dibujando línea desde: (" + startX + ", " + startY + ") hasta: (" + endX + ", " + endY + ")");
+            drawingView.drawLine(startX, startY, endX, endY, linePaint);
+        }
+    }
+
+
+
 }
