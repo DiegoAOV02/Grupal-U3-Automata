@@ -51,6 +51,6 @@
     <com.z_iti_271311_u3_e07.DrawingView
         android:id="@+id/drawView"
         android:layout_width="match_parent"
-        android:layout_height="500dp"
+        android:layout_height="300dp"
         android:background="#FFFFFF" />
 </LinearLayout>

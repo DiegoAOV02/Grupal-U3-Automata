@@ -280,8 +280,7 @@ public class MainActivity extends AppCompatActivity {
                         automata.setEstadoInicial(extractorDatosImagen.getEstadoInicial());
                         automata.setListaEstadosFinales(extractorDatosImagen.getEstadosFinales());
                         automata.setListaEstadosNormales(extractorDatosImagen.getEstados());
-                        automata.setListaTransiciones(extractorDatosImagen.getTransiciones());
-
+                        automata.getListaTransiciones(extractorDatosImagen.getTransiciones());
                         // Dibujar automáticamente en el DrawingView
                         drawAutomata(automata);
                     } else {
@@ -334,18 +333,6 @@ public class MainActivity extends AppCompatActivity {
             );
         }
 
-        // Dibujar transiciones
-        for (Transicion transicion : automata.getListaTransiciones()) {
-            Estado from = transicion.getFrom();
-            Estado to = transicion.getTo();
-            drawingView.drawTransition(
-                    (float) from.getCenter().x,
-                    (float) from.getCenter().y,
-                    (float) to.getCenter().x,
-                    (float) to.getCenter().y,
-                    transicion.getValor()
-            );
-        }
     }
 
     private void simulateAutomata(String input) {

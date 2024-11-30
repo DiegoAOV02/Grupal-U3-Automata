@@ -16,7 +16,6 @@ import androidx.annotation.NonNull;
 
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
-import com.google.android.gms.tasks.Task;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
@@ -171,48 +170,80 @@ public class ExtractorDatosImagen {
     }
 
     private void detectarTransiciones(Mat mFotoOriginal) {
-        // Convertir la imagen a escala de grises
         Mat edges = new Mat();
-        Imgproc.Canny(mFotoGrises, edges, 50, 150);
+        Imgproc.Canny(mFotoGrises, edges, 50, 150); // Detectar bordes
 
-        // Detectar líneas usando la Transformada de Hough
         Mat lines = new Mat();
-        Imgproc.HoughLinesP(edges, lines, 1, Math.PI / 180, 50, 50, 10);
+        Imgproc.HoughLinesP(edges, lines, 1, Math.PI / 180, 30, 50, 20); // Ajustar parámetros
 
-        Log.d("ExtractorDatosImagen", "Líneas detectadas: " + lines.rows());
-
-        // Iterar sobre las líneas detectadas
         for (int i = 0; i < lines.rows(); i++) {
             double[] points = lines.get(i, 0);
             if (points == null) continue;
 
-            // Coordenadas de inicio y fin de la línea
+            // Extremos de la línea
             Point start = new Point(points[0], points[1]);
             Point end = new Point(points[2], points[3]);
 
-            // Identificar los estados más cercanos a los extremos de la línea
+            // Buscar estados más cercanos a los extremos
             Estado estadoInicio = buscarEstadoCercano(start);
             Estado estadoFin = buscarEstadoCercano(end);
 
-            // Si ambos extremos pertenecen a estados diferentes, crear una transición
+            // Verificar si ambos extremos están cerca de estados válidos
             if (estadoInicio != null && estadoFin != null && !estadoInicio.equals(estadoFin)) {
-                // Determinar el valor de la transición (puedes mejorar esto con OCR)
-                String valorTransicion = "0"; // Ejemplo: puedes usar OCR para detectar el valor real
+                // Detectar valor de la transición
+                String valorTransicion = detectarValorTransicion(start, end);
 
                 // Crear y agregar la transición
                 Transicion transicion = new Transicion(estadoInicio, estadoFin, valorTransicion);
                 transiciones.add(transicion);
 
-                Log.d("ExtractorDatosImagen", "Transición detectada: de " +
-                        estadoInicio.getNombre() + " a " + estadoFin.getNombre() +
-                        " con valor " + valorTransicion);
+                // Dibujar la línea para depuración
+                Imgproc.line(mFotoOriginal, start, end, new Scalar(0, 255, 0), 3);
+
+                Log.d("Transicion", "De " + estadoInicio.getNombre() + " a " + estadoFin.getNombre() + " con valor " + valorTransicion);
             }
         }
 
         // Liberar recursos
-        lines.release();
         edges.release();
+        lines.release();
     }
+
+    private String detectarValorTransicion(Point start, Point end) {
+        // Calcular punto medio de la línea
+        Point midpoint = new Point((start.x + end.x) / 2, (start.y + end.y) / 2);
+
+        // Definir un ROI alrededor del punto medio
+        int roiSize = 50; // Tamaño del área para OCR
+        Rect roi = new Rect(
+                Math.max((int) midpoint.x - roiSize, 0),
+                Math.max((int) midpoint.y - roiSize, 0),
+                roiSize * 2,
+                roiSize * 2
+        );
+
+        // Extraer el ROI de la imagen original
+        Mat roiMat = new Mat(mFotoGrises, roi);
+        Bitmap roiBitmap = Bitmap.createBitmap(roiMat.width(), roiMat.height(), Bitmap.Config.ARGB_8888);
+        Utils.matToBitmap(roiMat, roiBitmap);
+
+        // Usar ML Kit para reconocer texto en el ROI
+        final String[] detectedText = {""};
+        InputImage image = InputImage.fromBitmap(roiBitmap, 0);
+
+        recognizer.process(image)
+                .addOnSuccessListener(text -> {
+                    detectedText[0] = text.getText().trim(); // Texto detectado
+                    Log.d("OCR", "Texto detectado: " + detectedText[0]);
+                })
+                .addOnFailureListener(e -> {
+                    Log.e("OCR", "Error al detectar texto", e);
+                });
+
+        roiMat.release();
+        return detectedText[0].isEmpty() ? "No label" : detectedText[0];
+    }
+
 
     private Estado buscarEstadoCercano(Point punto) {
         double distanciaMinima = Double.MAX_VALUE;

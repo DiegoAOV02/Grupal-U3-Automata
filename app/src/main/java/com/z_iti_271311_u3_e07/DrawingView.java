@@ -5,6 +5,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.View;
 
 import java.util.ArrayList;
@@ -57,19 +58,22 @@ public class DrawingView extends View {
     }
 
     public void drawState(float cx, float cy, float radius, boolean isInitial, boolean isFinal, String name) {
-        // Dibujar el círculo
         if (isInitial) {
+            Log.d("DrawingView", "Dibujando estado inicial en (" + cx + ", " + cy + ") con radio " + radius);
             drawCircle(cx, cy, radius, initialStatePaint);
         } else if (isFinal) {
+            Log.d("DrawingView", "Dibujando estado final en (" + cx + ", " + cy + ") con radio " + radius);
             drawCircle(cx, cy, radius, finalStatePaint);
-            drawCircle(cx, cy, radius - 10, finalStatePaint); // Círculo interno para estado final
+            drawCircle(cx, cy, radius - 10, finalStatePaint); // Círculo interno
         } else {
+            Log.d("DrawingView", "Dibujando estado normal en (" + cx + ", " + cy + ") con radio " + radius);
             drawCircle(cx, cy, radius, statePaint);
         }
 
-        // Dibujar el nombre del estado
+        Log.d("DrawingView", "Dibujando texto: " + name + " en (" + cx + ", " + cy + ")");
         drawText(name, cx - 15, cy + 10, textPaint);
     }
+
 
     public void drawTransition(float startX, float startY, float endX, float endY, String value) {
         // Dibujar línea

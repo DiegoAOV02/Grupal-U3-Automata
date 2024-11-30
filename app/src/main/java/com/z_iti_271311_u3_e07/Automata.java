@@ -8,12 +8,8 @@ public class Automata {
     private ArrayList<Estado> listaEstadosNormales = new ArrayList<>();
     private ArrayList<Estado> listaEstadosFinales = new ArrayList<>();
 
-    public ArrayList<Transicion> getListaTransiciones() {
+    public ArrayList<Transicion> getListaTransiciones(ArrayList<Transicion> transiciones) {
         return listaTransiciones;
-    }
-
-    public void setListaTransiciones(ArrayList<Transicion> listaTransiciones) {
-        this.listaTransiciones = listaTransiciones;
     }
 
     public Estado getEstadoInicial() {
