@@ -256,37 +256,95 @@ public class MainActivity extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == CAMERA_REQUEST_CODE && resultCode == RESULT_OK) {
-            // Procesar la imagen
             try {
                 Bitmap bitmap = BitmapFactory.decodeFile(currentPhotoPath);
 
                 if (bitmap != null) {
                     extractorDatosImagen = new ExtractorDatosImagen(getApplicationContext(), currentPhotoPath, bitmap);
+
                     // Obtener la orientación de la imagen desde los metadatos EXIF
                     int orientation = extractorDatosImagen.getExifOrientation(currentPhotoPath);
 
                     // Rotar la imagen si es necesario
                     Bitmap rotatedBitmap = extractorDatosImagen.rotateImageIfNeeded(bitmap, orientation);
 
-                    // Mostrar la imagen capturada (ahora con la orientación correcta)
+                    // Mostrar la imagen capturada en el ImageView
                     imageView.setImageBitmap(rotatedBitmap);
+
+                    // Procesar los datos del autómata
                     extractorDatosImagen.extraerDatos(extractorDatosImagen.getImagenOriginal());
+
                     if (extractorDatosImagen.isAutomata()) {
+                        // Crear el autómata con los datos detectados
                         Automata automata = new Automata();
                         automata.setEstadoInicial(extractorDatosImagen.getEstadoInicial());
                         automata.setListaEstadosFinales(extractorDatosImagen.getEstadosFinales());
                         automata.setListaEstadosNormales(extractorDatosImagen.getEstados());
                         automata.setListaTransiciones(extractorDatosImagen.getTransiciones());
 
-                        //Limpiar lista
-                        extractorDatosImagen.limpiarDatos();
-                        //Hacer recorrido
+                        // Dibujar automáticamente en el DrawingView
+                        drawAutomata(automata);
+                    } else {
+                        Toast.makeText(this, "La imagen no contiene un autómata válido.", Toast.LENGTH_SHORT).show();
                     }
                 }
             } catch (Exception e) {
                 Log.e("Camera", "Error al procesar la imagen", e);
                 Toast.makeText(getApplicationContext(), "Error al procesar la imagen", Toast.LENGTH_LONG).show();
             }
+        }
+    }
+
+    private void drawAutomata(Automata automata) {
+        // Limpiar el lienzo antes de dibujar
+        drawingView.clear();
+
+        // Dibujar estados
+        if (automata.getEstadoInicial() != null) {
+            Estado estadoInicial = automata.getEstadoInicial();
+            drawingView.drawState(
+                    (float) estadoInicial.getCenter().x,
+                    (float) estadoInicial.getCenter().y,
+                    estadoInicial.getRadius(),
+                    true,  // Es inicial
+                    false, // No es final
+                    estadoInicial.getNombre()
+            );
+        }
+
+        for (Estado estadoFinal : automata.getListaEstadosFinales()) {
+            drawingView.drawState(
+                    (float) estadoFinal.getCenter().x,
+                    (float) estadoFinal.getCenter().y,
+                    estadoFinal.getRadius(),
+                    false, // No es inicial
+                    true,  // Es final
+                    estadoFinal.getNombre()
+            );
+        }
+
+        for (Estado estadoNormal : automata.getListaEstadosNormales()) {
+            drawingView.drawState(
+                    (float) estadoNormal.getCenter().x,
+                    (float) estadoNormal.getCenter().y,
+                    estadoNormal.getRadius(),
+                    false, // No es inicial
+                    false, // No es final
+                    estadoNormal.getNombre()
+            );
+        }
+
+        // Dibujar transiciones
+        for (Transicion transicion : automata.getListaTransiciones()) {
+            Estado from = transicion.getFrom();
+            Estado to = transicion.getTo();
+            drawingView.drawTransition(
+                    (float) from.getCenter().x,
+                    (float) from.getCenter().y,
+                    (float) to.getCenter().x,
+                    (float) to.getCenter().y,
+                    transicion.getValor()
+            );
         }
     }
 

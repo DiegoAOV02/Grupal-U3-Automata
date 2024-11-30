@@ -96,7 +96,7 @@ public class ExtractorDatosImagen {
             Toast.makeText(context, "Ingresa la cadena a recorrer y empieza el recorrido", Toast.LENGTH_LONG).show();
             return true;
         } else {
-            Toast.makeText(context, "No se detecto como automata, toma la foto otra vez", Toast.LENGTH_LONG).show();
+            Toast.makeText(context, "No se detectó como autómata, toma la foto otra vez", Toast.LENGTH_LONG).show();
         }
         return false;
     }
@@ -171,7 +171,66 @@ public class ExtractorDatosImagen {
     }
 
     private void detectarTransiciones(Mat mFotoOriginal) {
+        // Convertir la imagen a escala de grises
+        Mat edges = new Mat();
+        Imgproc.Canny(mFotoGrises, edges, 50, 150);
 
+        // Detectar líneas usando la Transformada de Hough
+        Mat lines = new Mat();
+        Imgproc.HoughLinesP(edges, lines, 1, Math.PI / 180, 50, 50, 10);
+
+        Log.d("ExtractorDatosImagen", "Líneas detectadas: " + lines.rows());
+
+        // Iterar sobre las líneas detectadas
+        for (int i = 0; i < lines.rows(); i++) {
+            double[] points = lines.get(i, 0);
+            if (points == null) continue;
+
+            // Coordenadas de inicio y fin de la línea
+            Point start = new Point(points[0], points[1]);
+            Point end = new Point(points[2], points[3]);
+
+            // Identificar los estados más cercanos a los extremos de la línea
+            Estado estadoInicio = buscarEstadoCercano(start);
+            Estado estadoFin = buscarEstadoCercano(end);
+
+            // Si ambos extremos pertenecen a estados diferentes, crear una transición
+            if (estadoInicio != null && estadoFin != null && !estadoInicio.equals(estadoFin)) {
+                // Determinar el valor de la transición (puedes mejorar esto con OCR)
+                String valorTransicion = "0"; // Ejemplo: puedes usar OCR para detectar el valor real
+
+                // Crear y agregar la transición
+                Transicion transicion = new Transicion(estadoInicio, estadoFin, valorTransicion);
+                transiciones.add(transicion);
+
+                Log.d("ExtractorDatosImagen", "Transición detectada: de " +
+                        estadoInicio.getNombre() + " a " + estadoFin.getNombre() +
+                        " con valor " + valorTransicion);
+            }
+        }
+
+        // Liberar recursos
+        lines.release();
+        edges.release();
+    }
+
+    private Estado buscarEstadoCercano(Point punto) {
+        double distanciaMinima = Double.MAX_VALUE;
+        Estado estadoMasCercano = null;
+
+        for (Estado estado : estados) {
+            double distancia = Math.sqrt(
+                    Math.pow(estado.getCenter().x - punto.x, 2) +
+                            Math.pow(estado.getCenter().y - punto.y, 2)
+            );
+
+            if (distancia < distanciaMinima && distancia <= estado.getRadius() * 1.5) { // Ajusta el rango según el tamaño de los estados
+                distanciaMinima = distancia;
+                estadoMasCercano = estado;
+            }
+        }
+
+        return estadoMasCercano;
     }
 
     private void detectarEstados(Mat matriz, Mat dilatedEdges) {
