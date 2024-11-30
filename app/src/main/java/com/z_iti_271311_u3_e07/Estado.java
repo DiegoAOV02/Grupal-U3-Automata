@@ -1,4 +1,4 @@
-package com.automatas;
+package com.z_iti_271311_u3_e07;
 
 import org.opencv.core.Mat;
 import org.opencv.core.Point;

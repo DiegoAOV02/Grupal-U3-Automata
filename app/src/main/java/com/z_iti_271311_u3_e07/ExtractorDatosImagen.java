@@ -1,4 +1,4 @@
-package com.automatas;
+package com.z_iti_271311_u3_e07;
 
 import android.content.ContentValues;
 import android.content.Context;
@@ -189,7 +189,7 @@ public class ExtractorDatosImagen {
                 300   // Radio máximo
         );
 
-        //Recorrerlos para guardar los datos de circulos y analizarlos
+        // Recorrerlos para guardar los datos de círculos y analizarlos
         for (int i = 0; i < circles.cols(); i++) {
             double[] data = circles.get(0, i);
             if (data == null) continue;
@@ -197,11 +197,13 @@ public class ExtractorDatosImagen {
             Point center = new Point(data[0], data[1]);
             int radius = (int) Math.round(data[2]);
 
-            // Añadir a la lista de círculos detectados
+            // Crear un nuevo Estado
             Estado estado = new Estado(center, radius);
 
             if (!buscarIgual(estado)) {
                 estados.add(estado);
+                // Reconocer texto en este estado
+                reconocerTexto(estado);
             }
         }
 
@@ -369,9 +371,8 @@ public class ExtractorDatosImagen {
         }
     }
 
-    private String reconocerTexto(Estado estado) {
-
-        Rect innerROI = adjustROI(
+    private void reconocerTexto(Estado estado) {
+        Rect roi = adjustROI(
                 new Rect(
                         (int) (estado.center.x - estado.radius),
                         (int) (estado.center.y - estado.radius),
@@ -381,25 +382,34 @@ public class ExtractorDatosImagen {
                 mFotoOriginal.size()
         );
 
-        Mat mat = new Mat(mFotoGrises, innerROI);
-        Bitmap bitmap = Bitmap.createBitmap(mat.width(), mat.height(), Bitmap.Config.ARGB_8888);
-        Utils.matToBitmap(mat, bitmap);
+        Mat subMat = new Mat(mFotoGrises, roi);
+        Bitmap bitmap = Bitmap.createBitmap(subMat.width(), subMat.height(), Bitmap.Config.ARGB_8888);
+        Utils.matToBitmap(subMat, bitmap);
 
-        InputImage image = InputImage.fromBitmap(bitmap, getExifOrientation(currentPhotoPath));
+        InputImage image = InputImage.fromBitmap(bitmap, 0);
 
-        Task<Text> resultado = recognizer.process(image).addOnSuccessListener(new OnSuccessListener<Text>() {
+        recognizer.process(image)
+                .addOnSuccessListener(new OnSuccessListener<Text>() {
                     @Override
                     public void onSuccess(Text text) {
-
+                        String detectedText = text.getText();
+                        if (!detectedText.isEmpty()) {
+                            estado.setNombre(detectedText); // Asignar texto al estado
+                            Log.d("OCR_RESULT", "Estado detectado: " + detectedText);
+                        } else {
+                            estado.setNombre("Texto no detectado");
+                            Log.d("OCR_RESULT", "No se detectó texto en el estado.");
+                        }
                     }
                 })
                 .addOnFailureListener(new OnFailureListener() {
                     @Override
                     public void onFailure(@NonNull Exception e) {
-
+                        Log.e("OCR_ERROR", "Error al detectar texto en el estado.", e);
                     }
                 });
-        return null;
+
+        subMat.release();
     }
 
     public void guardarMat(Mat matriz, String nombre) {
@@ -445,10 +455,11 @@ public class ExtractorDatosImagen {
     }
 
     private Rect adjustROI(Rect roi, Size size) {
-        int x = Math.max(roi.x, 0);
-        int y = Math.max(roi.y, 0);
-        int width = Math.min(roi.width, (int) size.width - x);
-        int height = Math.min(roi.height, (int) size.height - y);
+        int margin = 10; // Expandir ligeramente el ROI
+        int x = Math.max(roi.x - margin, 0);
+        int y = Math.max(roi.y - margin, 0);
+        int width = Math.min(roi.width + 2 * margin, (int) size.width - x);
+        int height = Math.min(roi.height + 2 * margin, (int) size.height - y);
         return new Rect(x, y, width, height);
     }
 
