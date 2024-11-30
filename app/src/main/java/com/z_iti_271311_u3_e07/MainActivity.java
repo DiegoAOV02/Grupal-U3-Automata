@@ -1,4 +1,9 @@
 package com.z_iti_271311_u3_e07;
+<<<<<<< HEAD
+=======
+
+import static org.opencv.imgproc.Imgproc.getStructuringElement;
+>>>>>>> abddab2da0ba69542d0a3dda7d3a0494839b8656
 
 import android.Manifest;
 import android.app.AlertDialog;
@@ -270,6 +275,18 @@ public class MainActivity extends AppCompatActivity {
                     // Mostrar la imagen capturada (ahora con la orientación correcta)
                     imageView.setImageBitmap(rotatedBitmap);
                     extractorDatosImagen.extraerDatos(extractorDatosImagen.getImagenOriginal());
+                    if (extractorDatosImagen.isAutomata()){
+                        //Dibujar automata
+                        Automata automata = new Automata();
+                        automata.setEstadoInicial(extractorDatosImagen.getEstadoInicial());
+                        automata.setListaEstadosFinales(extractorDatosImagen.getEstadosFinales());
+                        automata.setListaEstadosNormales(extractorDatosImagen.getEstados());
+                        automata.setListaTransiciones(extractorDatosImagen.getTransiciones());
+
+                        //Limpiar lista
+                        extractorDatosImagen.limpiarDatos();
+                        //Hacer recorrido
+                    }
                 }
             } catch (Exception e) {
                 Log.e("Camera", "Error al procesar la imagen", e);
