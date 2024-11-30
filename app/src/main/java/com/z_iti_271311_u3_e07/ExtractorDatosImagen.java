@@ -40,8 +40,6 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 public class ExtractorDatosImagen {
     private Bitmap imagenOriginal;
@@ -91,7 +89,6 @@ public class ExtractorDatosImagen {
         // Procesar la imagen para detectar formas
         recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         detectAutomata(bitmap);
-        recognizer.close();
     }
 
     public boolean isAutomata() {
@@ -166,7 +163,7 @@ public class ExtractorDatosImagen {
         Imgproc.dilate(edges, dilatedEdges, kernel);
 
         releaseMats(blurredMat, kernel, edges);
-        detectarEstados(dilatedEdges);
+        detectarEstados(mFotoOriginal, dilatedEdges);
         detectarTransiciones(mFotoOriginal);
 
         guardarMat(mFotoOriginal, "imagen_resultante");
@@ -177,17 +174,17 @@ public class ExtractorDatosImagen {
 
     }
 
-    private void detectarEstados(Mat dilatedEdges) {
+    private void detectarEstados(Mat matriz, Mat dilatedEdges) {
         // Detectar círculos con la Transformada de Hough
         Mat circles = new Mat();
         Imgproc.HoughCircles(
                 dilatedEdges,
                 circles,
                 Imgproc.HOUGH_GRADIENT,
-                1,
+                1.0,
                 (double) mFotoGrises.rows() / 8,
                 100,  // Umbral superior para Canny
-                10,   // Umbral acumulador
+                40,   // Umbral acumulador
                 80,   // Radio mínimo
                 300   // Radio máximo
         );
@@ -200,26 +197,16 @@ public class ExtractorDatosImagen {
             Point center = new Point(data[0], data[1]);
             int radius = (int) Math.round(data[2]);
 
-            try{
-                // Añadir a la lista de círculos detectados
-                Estado estado = new Estado(center, radius);
+            // Añadir a la lista de círculos detectados
+            Estado estado = new Estado(center, radius);
 
-                //Reconocer nombre
-                String texto = reconocerTexto(estado);
-                Log.d("NOMBRES", texto);
-
-                if (!buscarIgual(estado) && !texto.isEmpty()) {
-                    estado.setNombre(texto);
-                    estados.add(estado);
-                }
-            }catch (Exception e){
-                e.printStackTrace();
-                Toast.makeText(context, "Hubo un error al reconocer el nombre", Toast.LENGTH_LONG).show();
+            if (!buscarIgual(estado)) {
+                estados.add(estado);
             }
         }
 
         // Identificar el estado inicial y final
-        releaseMats(circles, dilatedEdges);
+        releaseMats(circles);
         detectInitialStates(estados);
         detectFinalStates(estados);
         detectEstadosNormales(estados);
@@ -383,80 +370,36 @@ public class ExtractorDatosImagen {
     }
 
     private String reconocerTexto(Estado estado) {
-        // Variables para almacenar el resultado
-        final String[] textoReconocido = {""};
-        final CountDownLatch latch = new CountDownLatch(1);
 
-        try {
-            // Ajustar región de interés (ROI)
-            Rect innerROI = adjustROI(
-                    new Rect(
-                            (int) (estado.center.x - estado.radius),
-                            (int) (estado.center.y - estado.radius),
-                            (int) (estado.radius * 2),
-                            (int) (estado.radius * 2)
-                    ),
-                    mFotoOriginal.size()
-            );
+        Rect innerROI = adjustROI(
+                new Rect(
+                        (int) (estado.center.x - estado.radius),
+                        (int) (estado.center.y - estado.radius),
+                        (int) (estado.radius * 2),
+                        (int) (estado.radius * 2)
+                ),
+                mFotoOriginal.size()
+        );
 
-            // Crear Mat de la región de interés
-            Mat mat = new Mat(mFotoGrises, innerROI);
+        Mat mat = new Mat(mFotoGrises, innerROI);
+        Bitmap bitmap = Bitmap.createBitmap(mat.width(), mat.height(), Bitmap.Config.ARGB_8888);
+        Utils.matToBitmap(mat, bitmap);
 
-            // Crear Bitmap
-            Bitmap bitmap = Bitmap.createBitmap(mat.width(), mat.height(), Bitmap.Config.ARGB_8888);
-            Utils.matToBitmap(mat, bitmap);
+        InputImage image = InputImage.fromBitmap(bitmap, getExifOrientation(currentPhotoPath));
 
-            // Crear imagen de entrada para ML Kit
-            InputImage image = InputImage.fromBitmap(bitmap, getExifOrientation(currentPhotoPath));
+        Task<Text> resultado = recognizer.process(image).addOnSuccessListener(new OnSuccessListener<Text>() {
+                    @Override
+                    public void onSuccess(Text text) {
 
-            // Procesar imagen
-            recognizer.process(image)
-                    .addOnSuccessListener(text -> {
-                        try {
-                            // Concatenar todo el texto reconocido
-                            StringBuilder sb = new StringBuilder();
-                            for (Text.TextBlock block : text.getTextBlocks()) {
-                                sb.append(block.getText()).append(" ");
-                            }
-                            textoReconocido[0] = sb.toString().trim();
-                        } finally {
-                            // Liberar recursos
-                            if (!bitmap.isRecycled()) {
-                                bitmap.recycle();
-                            }
-                            mat.release(); // Liberar recursos de OpenCV
-                            latch.countDown();
-                        }
-                    })
-                    .addOnFailureListener(e -> {
-                        try {
-                            // Manejar error
-                            Log.e("ReconocimientoTexto", "Error al reconocer texto", e);
-                            textoReconocido[0] = "";
-                        } finally {
-                            // Liberar recursos
-                            if (!bitmap.isRecycled()) {
-                                bitmap.recycle();
-                            }
-                            mat.release(); // Liberar recursos de OpenCV
-                            latch.countDown();
-                        }
-                    });
+                    }
+                })
+                .addOnFailureListener(new OnFailureListener() {
+                    @Override
+                    public void onFailure(@NonNull Exception e) {
 
-            // Esperar a que se complete el procesamiento
-            if (!latch.await(5, TimeUnit.SECONDS)) {
-                Log.e("ReconocimientoTexto", "Timeout al reconocer texto");
-            }
-
-
-            if (!bitmap.isRecycled()) {
-                bitmap.recycle();
-            }
-        } catch (Exception e) {
-            Log.e("ReconocimientoTexto", "Error en el procesamiento", e);
-            return "";
-        }
-        return textoReconocido[0];
+                    }
+                });
+        return null;
     }
 
     public void guardarMat(Mat matriz, String nombre) {
