@@ -3,9 +3,7 @@ package com.z_iti_271311_u3_e07;
 import android.content.ContentValues;
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.graphics.Matrix;
-import android.graphics.Paint;
 import android.media.ExifInterface;
 import android.net.Uri;
 import android.os.Build;
@@ -14,12 +12,21 @@ import android.provider.MediaStore;
 import android.util.Log;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.android.gms.tasks.Task;
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
+import com.google.mlkit.vision.text.TextRecognition;
+import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+
 import org.opencv.android.Utils;
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
-import org.opencv.core.MatOfPoint;
-import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
@@ -36,31 +43,69 @@ import java.util.List;
 
 public class ExtractorDatosImagen {
     private Bitmap imagenOriginal;
-    private String currentPhotoPath;
     private Context context;
-    private DrawingView drawingView;
+    private String currentPhotoPath;
+
     //Matrices necesarias
     private Mat mFotoOriginal;
     private Mat mFotoGrises;
 
     //Listas de elementos
-    private List<Circle> detectedCircles = new ArrayList<>();
-    private List<Line> detectedLines = new ArrayList<>();
+    private ArrayList<Estado> estados = new ArrayList<>();
+    private Estado estadoInicial = null;
+    private ArrayList<Estado> estadosFinales = new ArrayList<>(); // Lista para los estados finales detectados.
+    private ArrayList<Transicion> transiciones = new ArrayList<>();
 
-    public ExtractorDatosImagen(Context context, String currentPhotoPath, Bitmap imagenOriginal, DrawingView drawingView) {
+    //Reconocimiento de texto
+    TextRecognizer recognizer;
+
+    public ExtractorDatosImagen(Context context, String currentPhotoPath, Bitmap imagenOriginal) {
         this.imagenOriginal = imagenOriginal;
         this.currentPhotoPath = currentPhotoPath;
         this.context = context;
-        this.drawingView = drawingView;
+    }
+
+    public ArrayList<Estado> getEstados() {
+        return estados;
+    }
+
+    public Estado getEstadoInicial() {
+        return estadoInicial;
+    }
+
+    public ArrayList<Estado> getEstadosFinales() {
+        return estadosFinales;
+    }
+
+    public ArrayList<Transicion> getTransiciones() {
+        return transiciones;
     }
 
     public Bitmap getImagenOriginal() {
         return imagenOriginal;
     }
 
-    public void extraerDatos(Bitmap bitmap){
+    public void extraerDatos(Bitmap bitmap) {
         // Procesar la imagen para detectar formas
+        recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         detectAutomata(bitmap);
+    }
+
+    public boolean isAutomata() {
+        if (estadoInicial != null && !estadosFinales.isEmpty() && !transiciones.isEmpty()) {
+            Toast.makeText(context, "Ingresa la cadena a recorrer y empieza el recorrido", Toast.LENGTH_LONG).show();
+            return true;
+        } else {
+            Toast.makeText(context, "No se detecto como automata, toma la foto otra vez", Toast.LENGTH_LONG).show();
+        }
+        return false;
+    }
+
+    public void limpiarDatos() {
+        estados.clear();
+        estadosFinales.clear();
+        transiciones.clear();
+        estadoInicial = null;
     }
 
     // Método para obtener la orientación de la imagen usando EXIF
@@ -96,60 +141,40 @@ public class ExtractorDatosImagen {
     }
 
     private void detectAutomata(Bitmap bitmap) {
-        Mat originalMat = new Mat();
-        Utils.bitmapToMat(bitmap, originalMat);
+        // Convertir el bitmap a Mat
+        mFotoOriginal = new Mat();
+        Utils.bitmapToMat(bitmap, mFotoOriginal);
 
         // Convertir la imagen a escala de grises
-        Mat grayMat = new Mat();
-        Imgproc.cvtColor(originalMat, grayMat, Imgproc.COLOR_RGB2GRAY);
+        mFotoGrises = new Mat();
+        Imgproc.cvtColor(mFotoOriginal, mFotoGrises, Imgproc.COLOR_RGB2GRAY);
 
-        // Aplicar desenfoque para reducir ruido
-        Imgproc.GaussianBlur(grayMat, grayMat, new Size(9, 9), 2);
+        // Aplicar desenfoque para reducir ruido y destacar bordes
+        Mat blurredMat = new Mat();
+        Imgproc.GaussianBlur(mFotoGrises, blurredMat, new Size(9, 9), 2);
 
         // Detectar bordes con Canny
         Mat edges = new Mat();
-        Imgproc.Canny(grayMat, edges, 50, 150);
+        Imgproc.Canny(blurredMat, edges, 50, 150);
 
-        // Detectar círculos
-        Mat circles = new Mat();
-        Imgproc.HoughCircles(grayMat, circles, Imgproc.HOUGH_GRADIENT,
-                1,          // Resolución inversa del acumulador
-                30,         // Distancia mínima entre centros de círculos
-                100,        // Umbral superior para Canny (param1)
-                50,         // Umbral acumulador para Hough (param2)
-                20,         // Radio mínimo
-                100         // Radio máximo
-        );
+        // Dilatar bordes para reforzar contornos
+        Mat dilatedEdges = new Mat();
+        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
+        Imgproc.dilate(edges, dilatedEdges, kernel);
 
-        detectedCircles.clear();
-        for (int i = 0; i < circles.cols(); i++) {
-            double[] data = circles.get(0, i);
-            if (data != null) {
-                Point center = new Point(data[0], data[1]);
-                int radius = (int) Math.round(data[2]);
+        releaseMats(blurredMat, kernel, edges);
+        detectarEstados(mFotoOriginal, dilatedEdges);
+        detectarTransiciones(mFotoOriginal);
 
-                // Validar distancia mínima entre círculos detectados
-                boolean isValid = true;
-                for (Circle detected : detectedCircles) {
-                    if (Math.sqrt(Math.pow(center.x - detected.center.x, 2) +
-                            Math.pow(center.y - detected.center.y, 2)) < 20) {
-                        isValid = false;
-                        break;
-                    }
-                }
-
-                if (isValid) {
-                    detectedCircles.add(new Circle(center, radius));
-                }
-            }
-        }
-
-        // Dibujar los círculos detectados
-        drawAutomata(detectedCircles, detectedLines);
+        guardarMat(mFotoOriginal, "imagen_resultante");
+        releaseMats(mFotoOriginal, mFotoGrises, dilatedEdges);
     }
 
+    private void detectarTransiciones(Mat mFotoOriginal) {
 
-    private void detectarTodosLosCirculos(Mat matriz, Mat dilatedEdges) {
+    }
+
+    private void detectarEstados(Mat matriz, Mat dilatedEdges) {
         // Detectar círculos con la Transformada de Hough
         Mat circles = new Mat();
         Imgproc.HoughCircles(
@@ -164,7 +189,7 @@ public class ExtractorDatosImagen {
                 300   // Radio máximo
         );
 
-        //Recorrerlos para guardar los datos de circulos y analizarlos
+        // Recorrerlos para guardar los datos de círculos y analizarlos
         for (int i = 0; i < circles.cols(); i++) {
             double[] data = circles.get(0, i);
             if (data == null) continue;
@@ -172,51 +197,57 @@ public class ExtractorDatosImagen {
             Point center = new Point(data[0], data[1]);
             int radius = (int) Math.round(data[2]);
 
-            // Añadir a la lista de círculos detectados
-            Circle circle = new Circle(center, radius);
-            if (!buscarIgual(circle)){
-                detectedCircles.add(circle);
-                Imgproc.circle(matriz, center, (int) radius, new Scalar(0, 255, 0), 2);
+            // Crear un nuevo Estado
+            Estado estado = new Estado(center, radius);
+
+            if (!buscarIgual(estado)) {
+                estados.add(estado);
+                // Reconocer texto en este estado
+                reconocerTexto(estado);
             }
         }
 
-        guardarMat(matriz, "circulos_iniciales");
-
         // Identificar el estado inicial y final
         releaseMats(circles);
-        //detectLargeCirclesUsingContours(dilatedEdges, detectedCircles);
-        detectInitialStates(detectedCircles);
-        detectFinalStates(detectedCircles);
+        detectInitialStates(estados);
+        detectFinalStates(estados);
+        detectEstadosNormales(estados);
     }
 
-    private void detectFinalStates(List<Circle> circles) {
-        List<Circle> detectedFinalStates = new ArrayList<>(); // Lista para los estados finales detectados.
-        Iterator<Circle> iteratorCircle = circles.iterator();
+    private void detectEstadosNormales(List<Estado> estados) {
+        // Dibujar otros estados en Azul
+        for (Estado estado : estados) {
+            Imgproc.circle(mFotoOriginal, estado.center, estado.radius, new Scalar(0, 0, 255), 5); // Azul
+        }
+    }
+
+    private void detectFinalStates(List<Estado> estados) {
+        Iterator<Estado> iteratorCircle = estados.iterator();
 
         while (iteratorCircle.hasNext()) {
-            Circle currentCircle = iteratorCircle.next();
+            Estado currentEstado = iteratorCircle.next();
             boolean isFinalState = false;
 
             // 1. Intentar encontrar un círculo externo si el actual es un círculo interno.
+            int margin = 10;
             Rect expandedROI = adjustROI(
                     new Rect(
-                            (int) (currentCircle.center.x - currentCircle.radius),
-                            (int) (currentCircle.center.y - currentCircle.radius),
-                            (int) (currentCircle.radius * 2),
-                            (int) (currentCircle.radius * 2)
+                            (int) (currentEstado.center.x - (currentEstado.radius + margin)),
+                            (int) (currentEstado.center.y - (currentEstado.radius + margin)),
+                            (int) (currentEstado.radius * 2) + margin,
+                            (int) (currentEstado.radius * 2) + margin
                     ),
                     mFotoOriginal.size()
             );
 
             Mat subMat = new Mat(mFotoGrises, expandedROI);
-            guardarMat(subMat, "candidatosfinales");
             Mat candidateCircles = new Mat();
 
             // Detectar círculos más grandes cercanos.
             Imgproc.HoughCircles(
                     subMat, candidateCircles, Imgproc.HOUGH_GRADIENT, 1,
                     (double) mFotoGrises.rows() / 8, 100, 30,
-                    (int) currentCircle.radius + 10, (int) (currentCircle.radius * 2)
+                    (int) currentEstado.radius + 10, (int) (currentEstado.radius * 2)
             );
 
             if (candidateCircles.cols() > 0) {
@@ -227,14 +258,10 @@ public class ExtractorDatosImagen {
                     double outerRadius = outerData[2];
 
                     // Verificar que comparte centro con el círculo interno.
-                    if (Math.abs(outerCenter.x - currentCircle.center.x) < 2 &&
-                            Math.abs(outerCenter.y - currentCircle.center.y) < 2) {
+                    if (Math.abs(outerCenter.x - currentEstado.center.x) < 2 &&
+                            Math.abs(outerCenter.y - currentEstado.center.y) < 2) {
 
-                        // Dibujar ambos círculos.
-                        //Imgproc.circle(mFotoOriginal, currentCircle.center, (int) currentCircle.radius, new Scalar(255, 0, 0), 2);
-                        //Imgproc.circle(mFotoOriginal, outerCenter, (int) outerRadius, new Scalar(0, 255, 0), 2);
-
-                        detectedFinalStates.add(new Circle(outerCenter, (int) outerRadius)); // Agregar a estados finales.
+                        estadosFinales.add(new Estado(outerCenter, (int) outerRadius)); // Agregar a estados finales.
                         isFinalState = true;
                     }
                 }
@@ -246,10 +273,10 @@ public class ExtractorDatosImagen {
             if (!isFinalState) {
                 Rect innerROI = adjustROI(
                         new Rect(
-                                (int) (currentCircle.center.x - currentCircle.radius),
-                                (int) (currentCircle.center.y - currentCircle.radius),
-                                (int) (currentCircle.radius * 2),
-                                (int) (currentCircle.radius * 2)
+                                (int) (currentEstado.center.x - currentEstado.radius),
+                                (int) (currentEstado.center.y - currentEstado.radius),
+                                (int) (currentEstado.radius * 2),
+                                (int) (currentEstado.radius * 2)
                         ),
                         mFotoOriginal.size()
                 );
@@ -261,7 +288,7 @@ public class ExtractorDatosImagen {
                 Imgproc.HoughCircles(
                         subMat, candidateCircles, Imgproc.HOUGH_GRADIENT, 1,
                         (double) mFotoGrises.rows() / 8, 100, 30,
-                        10, (int) currentCircle.radius
+                        10, (int) currentEstado.radius
                 );
 
                 if (candidateCircles.cols() > 0) {
@@ -272,14 +299,10 @@ public class ExtractorDatosImagen {
                         double innerRadius = innerData[2];
 
                         // Verificar que comparte centro con el círculo externo.
-                        if (Math.abs(innerCenter.x - currentCircle.center.x) < 2 &&
-                                Math.abs(innerCenter.y - currentCircle.center.y) < 2) {
+                        if (Math.abs(innerCenter.x - currentEstado.center.x) < 2 &&
+                                Math.abs(innerCenter.y - currentEstado.center.y) < 2) {
 
-                            // Dibujar ambos círculos.
-                            //Imgproc.circle(mFotoOriginal, currentCircle.center, (int) currentCircle.radius, new Scalar(0, 255, 0), 2);
-                            //Imgproc.circle(mFotoOriginal, innerCenter, (int) innerRadius, new Scalar(255, 0, 0), 2);
-
-                            detectedFinalStates.add(currentCircle); // Agregar a estados finales.
+                            estadosFinales.add(currentEstado); // Agregar a estados finales.
                             isFinalState = true;
                         }
                     }
@@ -288,7 +311,7 @@ public class ExtractorDatosImagen {
                 releaseMats(subMat, candidateCircles);
             }
 
-            // 3. Si se determinó que es un estado final, eliminar el círculo procesado de la lista original.
+            // Si se determinó que es un estado final, eliminar el círculo procesado de la lista original.
             if (isFinalState) {
                 Toast.makeText(context, "Hay un estado final", Toast.LENGTH_LONG).show();
                 iteratorCircle.remove();
@@ -296,68 +319,33 @@ public class ExtractorDatosImagen {
         }
 
         // Dibujar los estados finales en Rojo
-        for (Circle finalCircle : detectedFinalStates) {
-            Imgproc.circle(mFotoOriginal, finalCircle.center, finalCircle.radius, new Scalar(255, 0, 0), 5); // Rojo
-            Imgproc.putText(mFotoOriginal, "Final", new Point(finalCircle.center.x - 20, finalCircle.center.y - 20),
-                    Imgproc.FONT_HERSHEY_SIMPLEX, 1, new Scalar(255, 0, 0), 2);
+        for (Estado finalEstado : estadosFinales) {
+            Imgproc.circle(mFotoOriginal, finalEstado.center, finalEstado.radius, new Scalar(255, 0, 0), 5); // Rojo
         }
+
     }
 
-
-    private void detectLargeCirclesUsingContours(Mat edges, List<Circle> circles) {
-        List<MatOfPoint> contours = new ArrayList<>();
-        Imgproc.findContours(edges, contours, new Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
-
-        for (MatOfPoint contour : contours) {
-            MatOfPoint2f contour2f = new MatOfPoint2f(contour.toArray());
-            double perimeter = Imgproc.arcLength(contour2f, true);
-            double area = Imgproc.contourArea(contour);
-
-            // Filtrar por área y circularidad
-            if (area > 10000 && area < 200000) { // Detectar círculos grandes
-                double circularity = (4 * Math.PI * area) / (perimeter * perimeter);
-                if (circularity > 0.7) { // Confirmar forma circular
-                    Rect boundingBox = Imgproc.boundingRect(contour);
-                    Point center = new Point(
-                            boundingBox.x + boundingBox.width / 2.0,
-                            boundingBox.y + boundingBox.height / 2.0
-                    );
-                    int radius = (int) (boundingBox.width / 2.0);
-
-                    // Añadir a la lista de círculos
-                    circles.add(new Circle(center, radius));
-
-                    // Dibujar el círculo detectado
-                    Imgproc.circle(mFotoOriginal, center, radius, new Scalar(0, 255, 255), 3);
-                }
-            }
-            contour.release();
-        }
-    }
-
-    private boolean buscarIgual(Circle circle) {
-        for (Circle circleNew : detectedCircles){
-            if (circleNew.center == circle.center && circleNew.radius == circle.radius){
+    private boolean buscarIgual(Estado estado) {
+        for (Estado estadoNew : estados) {
+            if (estadoNew.center == estado.center && estadoNew.radius == estado.radius) {
                 return true;
             }
         }
         return false;
     }
 
-    private void detectInitialStates(List<Circle> circles) {
-        Circle initialState = null;
-
+    private void detectInitialStates(List<Estado> estados) {
         // Detectar el estado inicial como el círculo con mayor grosor
         double maxThickness = 0;
 
-        for (Circle circle : circles) {
+        for (Estado estado : estados) {
             // Crear una máscara para calcular el grosor del borde
             Mat mask = Mat.zeros(mFotoGrises.size(), CvType.CV_8UC1);
-            Imgproc.circle(mask, circle.center, circle.radius, new Scalar(255), -1); // Llena el círculo completo
+            Imgproc.circle(mask, estado.center, estado.radius, new Scalar(255), -1); // Llena el círculo completo
 
             // Crear un borde para simular el contorno externo
             Mat outerMask = Mat.zeros(mFotoGrises.size(), CvType.CV_8UC1);
-            Imgproc.circle(outerMask, circle.center, circle.radius + 2, new Scalar(255), -1);
+            Imgproc.circle(outerMask, estado.center, estado.radius + 2, new Scalar(255), -1);
 
             // Calcular el grosor aproximado del borde como la diferencia de áreas
             Core.subtract(outerMask, mask, mask);
@@ -366,7 +354,7 @@ public class ExtractorDatosImagen {
             // Comparar el grosor con el máximo encontrado
             if (thickness > maxThickness) {
                 maxThickness = thickness;
-                initialState = circle;
+                estadoInicial = estado;
             }
 
             // Liberar las máscaras
@@ -374,26 +362,53 @@ public class ExtractorDatosImagen {
         }
 
         //Eliminar el estado inicial de la lista de circulos para que no pase por otro proceso
-        detectedCircles.remove(initialState);
+        this.estados.remove(estadoInicial);
 
         // Dibujar el estado inicial en verde
-        if (initialState != null) {
+        if (estadoInicial != null) {
             Toast.makeText(context, "Hay un estado inicial", Toast.LENGTH_LONG).show();
-            Imgproc.circle(mFotoOriginal, initialState.center, initialState.radius, new Scalar(0, 255, 0), 5); // Verde
-            Imgproc.putText(mFotoOriginal, "Inicial", new Point(initialState.center.x - 20, initialState.center.y - 20),
-                    Imgproc.FONT_HERSHEY_SIMPLEX, 1, new Scalar(0, 255, 0), 2);
+            Imgproc.circle(mFotoOriginal, estadoInicial.center, estadoInicial.radius, new Scalar(0, 255, 0), 5); // Verde
         }
+    }
 
-        /*
+    private void reconocerTexto(Estado estado) {
+        Rect roi = adjustROI(
+                new Rect(
+                        (int) (estado.center.x - estado.radius),
+                        (int) (estado.center.y - estado.radius),
+                        (int) (estado.radius * 2),
+                        (int) (estado.radius * 2)
+                ),
+                mFotoOriginal.size()
+        );
 
-        // Dibujar otros estados en Azul
-        for (Circle circle : circles) {
-            if (!circle.equals(initialState) && !detectedFinalStates.contains(circle)) {
-                Imgproc.circle(mFotoOriginal, circle.center, circle.radius, new Scalar(0, 0, 255), 5); // Azul
-                Imgproc.putText(mFotoOriginal, "Estado", new Point(circle.center.x - 20, circle.center.y - 20),
-                        Imgproc.FONT_HERSHEY_SIMPLEX, 1, new Scalar(0, 0, 255), 2);
-            }
-        }*/
+        Mat subMat = new Mat(mFotoGrises, roi);
+        Bitmap bitmap = Bitmap.createBitmap(subMat.width(), subMat.height(), Bitmap.Config.ARGB_8888);
+        Utils.matToBitmap(subMat, bitmap);
+
+        InputImage image = InputImage.fromBitmap(bitmap, 0);
+
+        recognizer.process(image)
+                .addOnSuccessListener(new OnSuccessListener<Text>() {
+                    @Override
+                    public void onSuccess(Text text) {
+                        String detectedText = text.getText();
+                        if (!detectedText.isEmpty()) {
+                            estado.setNombre(detectedText); // Asignar texto al estado
+                            Log.d("OCR_RESULT", "Estado detectado: " + detectedText);
+                        } else {
+                            estado.setNombre("Texto no detectado");
+                            Log.d("OCR_RESULT", "No se detectó texto en el estado.");
+                        }
+                    }
+                })
+                .addOnFailureListener(new OnFailureListener() {
+                    @Override
+                    public void onFailure(@NonNull Exception e) {
+                        Log.e("OCR_ERROR", "Error al detectar texto en el estado.", e);
+                    }
+                });
+        subMat.release();
     }
 
     public void guardarMat(Mat matriz, String nombre) {
@@ -413,7 +428,7 @@ public class ExtractorDatosImagen {
                 if (uri != null) {
                     try (OutputStream outputStream = context.getContentResolver().openOutputStream(uri)) {
                         bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
-                        Toast.makeText(context, "Imagen guardada en Pictures", Toast.LENGTH_SHORT).show();
+                        Log.d("IMAGEN PICTURES", "Imagen guardada en Pictures: " + nombre);
                     } catch (IOException e) {
                         e.printStackTrace();
                         Toast.makeText(context, "Error al guardar la imagen", Toast.LENGTH_SHORT).show();
@@ -435,13 +450,15 @@ public class ExtractorDatosImagen {
                 e.printStackTrace();
             }
         }
+        bitmap.recycle();
     }
 
     private Rect adjustROI(Rect roi, Size size) {
-        int x = Math.max(roi.x, 0);
-        int y = Math.max(roi.y, 0);
-        int width = Math.min(roi.width, (int) size.width - x);
-        int height = Math.min(roi.height, (int) size.height - y);
+        int margin = 10; // Expandir ligeramente el ROI
+        int x = Math.max(roi.x - margin, 0);
+        int y = Math.max(roi.y - margin, 0);
+        int width = Math.min(roi.width + 2 * margin, (int) size.width - x);
+        int height = Math.min(roi.height + 2 * margin, (int) size.height - y);
         return new Rect(x, y, width, height);
     }
 
@@ -450,83 +467,4 @@ public class ExtractorDatosImagen {
             if (mat != null) mat.release();
         }
     }
-
-    // Clase para representar un círculo detectado
-    class Circle {
-        Point center;
-        int radius;
-
-        Circle(Point center, int radius) {
-            this.center = center;
-            this.radius = radius;
-        }
-    }
-    // Clase auxiliar para líneas
-    private static class Line {
-        Point start;
-        Point end;
-
-        Line(Point start, Point end) {
-            this.start = start;
-            this.end = end;
-        }
-    }
-
-    private void drawAutomata(List<Circle> circles, List<Line> lines) {
-        drawingView.clear();
-
-        // Dimensiones del DrawingView
-        int viewWidth = drawingView.getWidth();
-        int viewHeight = drawingView.getHeight();
-
-        // Dimensiones de la imagen original
-        int originalWidth = imagenOriginal.getWidth();
-        int originalHeight = imagenOriginal.getHeight();
-
-        // Escalas para ajustar las coordenadas
-        float scaleX = (float) viewWidth / originalWidth;
-        float scaleY = (float) viewHeight / originalHeight;
-
-        // Configurar pinceles
-        Paint circlePaint = new Paint();
-        circlePaint.setColor(Color.BLUE);
-        circlePaint.setStyle(Paint.Style.STROKE);
-        circlePaint.setStrokeWidth(5);
-
-        Paint textPaint = new Paint();
-        textPaint.setColor(Color.BLACK);
-        textPaint.setTextSize(40);
-
-        Paint linePaint = new Paint();
-        linePaint.setColor(Color.RED);
-        linePaint.setStrokeWidth(5);
-
-        // Dibujar círculos
-        for (Circle circle : circles) {
-            float adjustedX = (float) circle.center.x * scaleX;
-            float adjustedY = (float) circle.center.y * scaleY;
-            float adjustedRadius = circle.radius * scaleX;
-
-            Log.d("DRAW_AUTOMATA", "Dibujando círculo en: (" + adjustedX + ", " + adjustedY + ") con radio: " + adjustedRadius);
-            drawingView.drawCircle(adjustedX, adjustedY, adjustedRadius, circlePaint);
-
-            // Dibujar texto asociado
-            String stateLabel = "S" + circles.indexOf(circle);
-            drawingView.drawText(stateLabel, adjustedX - 20, adjustedY + 10, textPaint);
-        }
-
-        // Dibujar líneas
-        for (Line line : lines) {
-            float startX = (float) line.start.x * scaleX;
-            float startY = (float) line.start.y * scaleY;
-            float endX = (float) line.end.x * scaleX;
-            float endY = (float) line.end.y * scaleY;
-
-            Log.d("DRAW_AUTOMATA", "Dibujando línea desde: (" + startX + ", " + startY + ") hasta: (" + endX + ", " + endY + ")");
-            drawingView.drawLine(startX, startY, endX, endY, linePaint);
-        }
-    }
-
-
-
 }

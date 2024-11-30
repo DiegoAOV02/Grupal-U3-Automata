@@ -1,9 +1,5 @@
 package com.z_iti_271311_u3_e07;
-<<<<<<< HEAD
-=======
-
 import static org.opencv.imgproc.Imgproc.getStructuringElement;
->>>>>>> abddab2da0ba69542d0a3dda7d3a0494839b8656
 
 import android.Manifest;
 import android.app.AlertDialog;
@@ -265,7 +261,7 @@ public class MainActivity extends AppCompatActivity {
                 Bitmap bitmap = BitmapFactory.decodeFile(currentPhotoPath);
 
                 if (bitmap != null) {
-                    extractorDatosImagen = new ExtractorDatosImagen(getApplicationContext(), currentPhotoPath, bitmap,drawingView);
+                    extractorDatosImagen = new ExtractorDatosImagen(getApplicationContext(), currentPhotoPath, bitmap);
                     // Obtener la orientación de la imagen desde los metadatos EXIF
                     int orientation = extractorDatosImagen.getExifOrientation(currentPhotoPath);
 
@@ -275,8 +271,7 @@ public class MainActivity extends AppCompatActivity {
                     // Mostrar la imagen capturada (ahora con la orientación correcta)
                     imageView.setImageBitmap(rotatedBitmap);
                     extractorDatosImagen.extraerDatos(extractorDatosImagen.getImagenOriginal());
-                    if (extractorDatosImagen.isAutomata()){
-                        //Dibujar automata
+                    if (extractorDatosImagen.isAutomata()) {
                         Automata automata = new Automata();
                         automata.setEstadoInicial(extractorDatosImagen.getEstadoInicial());
                         automata.setListaEstadosFinales(extractorDatosImagen.getEstadosFinales());
