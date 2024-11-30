@@ -95,7 +95,7 @@ public class ExtractorDatosImagen {
             Toast.makeText(context, "Ingresa la cadena a recorrer y empieza el recorrido", Toast.LENGTH_LONG).show();
             return true;
         } else {
-            Toast.makeText(context, "No se detectó como autómata, toma la foto otra vez", Toast.LENGTH_LONG).show();
+            Toast.makeText(context, "No se detecto como automata, toma la foto otra vez", Toast.LENGTH_LONG).show();
         }
         return false;
     }
@@ -160,108 +160,39 @@ public class ExtractorDatosImagen {
         Mat dilatedEdges = new Mat();
         Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
         Imgproc.dilate(edges, dilatedEdges, kernel);
-
         releaseMats(blurredMat, kernel, edges);
-        detectarEstados(mFotoOriginal, dilatedEdges);
-        detectarTransiciones(mFotoOriginal);
 
-        guardarMat(mFotoOriginal, "imagen_resultante");
+        detectarEstados(mFotoOriginal.clone(), dilatedEdges);
+        detectarTransiciones(mFotoOriginal.clone());
+
         releaseMats(mFotoOriginal, mFotoGrises, dilatedEdges);
     }
 
     private void detectarTransiciones(Mat mFotoOriginal) {
+        // Aplicar desenfoque para reducir ruido y destacar bordes
+        Mat blurredMat = new Mat();
+        Imgproc.GaussianBlur(mFotoOriginal, blurredMat, new Size(9, 9), 2);
+
+        // Detectar bordes con Canny
         Mat edges = new Mat();
-        Imgproc.Canny(mFotoGrises, edges, 50, 150); // Detectar bordes
+        Imgproc.Canny(blurredMat, edges, 50, 150);
+
+        // Dilatar bordes para reforzar contornos
+        Mat dilatedEdges = new Mat();
+        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
+        Imgproc.dilate(edges, dilatedEdges, kernel);
 
         Mat lines = new Mat();
-        Imgproc.HoughLinesP(edges, lines, 1, Math.PI / 180, 30, 50, 20); // Ajustar parámetros
-
+        Imgproc.HoughLinesP(dilatedEdges, lines, 1, Math.PI / 180, 50, 80, 10);
         for (int i = 0; i < lines.rows(); i++) {
             double[] points = lines.get(i, 0);
-            if (points == null) continue;
-
-            // Extremos de la línea
-            Point start = new Point(points[0], points[1]);
-            Point end = new Point(points[2], points[3]);
-
-            // Buscar estados más cercanos a los extremos
-            Estado estadoInicio = buscarEstadoCercano(start);
-            Estado estadoFin = buscarEstadoCercano(end);
-
-            // Verificar si ambos extremos están cerca de estados válidos
-            if (estadoInicio != null && estadoFin != null && !estadoInicio.equals(estadoFin)) {
-                // Detectar valor de la transición
-                String valorTransicion = detectarValorTransicion(start, end);
-
-                // Crear y agregar la transición
-                Transicion transicion = new Transicion(estadoInicio, estadoFin, valorTransicion);
-                transiciones.add(transicion);
-
-                // Dibujar la línea para depuración
-                Imgproc.line(mFotoOriginal, start, end, new Scalar(0, 255, 0), 3);
-
-                Log.d("Transicion", "De " + estadoInicio.getNombre() + " a " + estadoFin.getNombre() + " con valor " + valorTransicion);
-            }
+            double x1 = points[0], y1 = points[1], x2 = points[2], y2 = points[3];
+            // Dibuja la línea en la imagen
+            Imgproc.line(mFotoOriginal, new Point(x1, y1), new Point(x2, y2), new Scalar(255, 0, 0), 2);
         }
 
-        // Liberar recursos
-        edges.release();
-        lines.release();
-    }
-
-    private String detectarValorTransicion(Point start, Point end) {
-        // Calcular punto medio de la línea
-        Point midpoint = new Point((start.x + end.x) / 2, (start.y + end.y) / 2);
-
-        // Definir un ROI alrededor del punto medio
-        int roiSize = 50; // Tamaño del área para OCR
-        Rect roi = new Rect(
-                Math.max((int) midpoint.x - roiSize, 0),
-                Math.max((int) midpoint.y - roiSize, 0),
-                roiSize * 2,
-                roiSize * 2
-        );
-
-        // Extraer el ROI de la imagen original
-        Mat roiMat = new Mat(mFotoGrises, roi);
-        Bitmap roiBitmap = Bitmap.createBitmap(roiMat.width(), roiMat.height(), Bitmap.Config.ARGB_8888);
-        Utils.matToBitmap(roiMat, roiBitmap);
-
-        // Usar ML Kit para reconocer texto en el ROI
-        final String[] detectedText = {""};
-        InputImage image = InputImage.fromBitmap(roiBitmap, 0);
-
-        recognizer.process(image)
-                .addOnSuccessListener(text -> {
-                    detectedText[0] = text.getText().trim(); // Texto detectado
-                    Log.d("OCR", "Texto detectado: " + detectedText[0]);
-                })
-                .addOnFailureListener(e -> {
-                    Log.e("OCR", "Error al detectar texto", e);
-                });
-
-        roiMat.release();
-        return detectedText[0].isEmpty() ? "No label" : detectedText[0];
-    }
-
-
-    private Estado buscarEstadoCercano(Point punto) {
-        double distanciaMinima = Double.MAX_VALUE;
-        Estado estadoMasCercano = null;
-
-        for (Estado estado : estados) {
-            double distancia = Math.sqrt(
-                    Math.pow(estado.getCenter().x - punto.x, 2) +
-                            Math.pow(estado.getCenter().y - punto.y, 2)
-            );
-
-            if (distancia < distanciaMinima && distancia <= estado.getRadius() * 1.5) { // Ajusta el rango según el tamaño de los estados
-                distanciaMinima = distancia;
-                estadoMasCercano = estado;
-            }
-        }
-
-        return estadoMasCercano;
+        guardarMat(mFotoOriginal, "lineas");
+        releaseMats(mFotoOriginal, blurredMat, edges, dilatedEdges, lines);
     }
 
     private void detectarEstados(Mat matriz, Mat dilatedEdges) {
@@ -275,11 +206,11 @@ public class ExtractorDatosImagen {
                 (double) mFotoGrises.rows() / 8,
                 100,  // Umbral superior para Canny
                 40,   // Umbral acumulador
-                80,   // Radio mínimo
-                300   // Radio máximo
+                100,   // Radio mínimo
+                500   // Radio máximo
         );
 
-        // Recorrerlos para guardar los datos de círculos y analizarlos
+        //Recorrerlos para guardar los datos de circulos y analizarlos
         for (int i = 0; i < circles.cols(); i++) {
             double[] data = circles.get(0, i);
             if (data == null) continue;
@@ -287,7 +218,7 @@ public class ExtractorDatosImagen {
             Point center = new Point(data[0], data[1]);
             int radius = (int) Math.round(data[2]);
 
-            // Crear un nuevo Estado
+            // Añadir a la lista de círculos detectados
             Estado estado = new Estado(center, radius);
 
             if (!buscarIgual(estado)) {
@@ -298,46 +229,61 @@ public class ExtractorDatosImagen {
         }
 
         // Identificar el estado inicial y final
-        releaseMats(circles);
-        detectInitialStates(estados);
-        detectFinalStates(estados);
-        detectEstadosNormales(estados);
+        detectInitialStates(matriz, estados);
+        detectFinalStates(matriz, estados);
+        detectEstadosNormales(matriz, estados);
+
+        guardarMat(matriz, "imagen_resultante");
+        releaseMats(circles, matriz);
     }
 
-    private void detectEstadosNormales(List<Estado> estados) {
+    private void detectEstadosNormales(Mat mfoto, List<Estado> estados) {
         // Dibujar otros estados en Azul
         for (Estado estado : estados) {
-            Imgproc.circle(mFotoOriginal, estado.center, estado.radius, new Scalar(0, 0, 255), 5); // Azul
+            Imgproc.circle(mfoto, estado.center, estado.radius, new Scalar(0, 0, 255), 5); // Azul
         }
     }
 
-    private void detectFinalStates(List<Estado> estados) {
+    private void detectFinalStates(Mat mfoto, List<Estado> estados) {
         Iterator<Estado> iteratorCircle = estados.iterator();
 
         while (iteratorCircle.hasNext()) {
             Estado currentEstado = iteratorCircle.next();
             boolean isFinalState = false;
 
-            // 1. Intentar encontrar un círculo externo si el actual es un círculo interno.
-            int margin = 10;
-            Rect expandedROI = adjustROI(
+            //Intentar encontrar un círculo externo si el actual es un círculo interno.
+            int margin = 50;
+            Rect expandedROI = getROI(
                     new Rect(
-                            (int) (currentEstado.center.x - (currentEstado.radius + margin)),
-                            (int) (currentEstado.center.y - (currentEstado.radius + margin)),
-                            (int) (currentEstado.radius * 2) + margin,
-                            (int) (currentEstado.radius * 2) + margin
+                            (int) (currentEstado.center.x - currentEstado.radius - margin),
+                            (int) (currentEstado.center.y - currentEstado.radius - margin),
+                            (int) (currentEstado.radius * 2) + (margin * 2),
+                            (int) (currentEstado.radius * 2) + (margin * 2)
                     ),
-                    mFotoOriginal.size()
+                    mfoto.size()
             );
 
             Mat subMat = new Mat(mFotoGrises, expandedROI);
-            Mat candidateCircles = new Mat();
 
-            // Detectar círculos más grandes cercanos.
+            // Aplicar desenfoque para reducir ruido y destacar bordes
+            Mat blurredMat = new Mat();
+            Imgproc.GaussianBlur(subMat, blurredMat, new Size(9, 9), 2);
+
+            // Detectar bordes con Canny
+            Mat edges = new Mat();
+            Imgproc.Canny(blurredMat, edges, 50, 150);
+
+            // Dilatar bordes para reforzar contornos
+            Mat dilatedEdges = new Mat();
+            Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
+            Imgproc.dilate(edges, dilatedEdges, kernel);
+
+            Mat candidateCircles = new Mat();
+            // Detectar círculos cercanos.
             Imgproc.HoughCircles(
-                    subMat, candidateCircles, Imgproc.HOUGH_GRADIENT, 1,
+                    dilatedEdges, candidateCircles, Imgproc.HOUGH_GRADIENT, 1,
                     (double) mFotoGrises.rows() / 8, 100, 30,
-                    (int) currentEstado.radius + 10, (int) (currentEstado.radius * 2)
+                    (int) currentEstado.radius * 2, (int) currentEstado.radius * 3
             );
 
             if (candidateCircles.cols() > 0) {
@@ -357,28 +303,41 @@ public class ExtractorDatosImagen {
                 }
             }
 
-            releaseMats(subMat, candidateCircles);
+            releaseMats(subMat, candidateCircles, blurredMat, edges, dilatedEdges);
 
-            // 2. Si no se encontró un círculo externo, asumir que es externo y buscar un círculo interno.
+            // Si no se encontró un círculo externo, asumir que es externo y buscar un círculo interno.
             if (!isFinalState) {
-                Rect innerROI = adjustROI(
+                Rect innerROI = getROI(
                         new Rect(
                                 (int) (currentEstado.center.x - currentEstado.radius),
                                 (int) (currentEstado.center.y - currentEstado.radius),
                                 (int) (currentEstado.radius * 2),
                                 (int) (currentEstado.radius * 2)
                         ),
-                        mFotoOriginal.size()
+                        mfoto.size()
                 );
 
                 subMat = new Mat(mFotoGrises, innerROI);
+
+                // Aplicar desenfoque para reducir ruido y destacar bordes
+                blurredMat = new Mat();
+                Imgproc.GaussianBlur(subMat, blurredMat, new Size(9, 9), 2);
+
+                // Detectar bordes con Canny
+                edges = new Mat();
+                Imgproc.Canny(blurredMat, edges, 50, 150);
+
+                // Dilatar bordes para reforzar contornos
+                dilatedEdges = new Mat();
+                kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
+                Imgproc.dilate(edges, dilatedEdges, kernel);
                 candidateCircles = new Mat();
 
                 // Detectar círculos más pequeños dentro del actual.
                 Imgproc.HoughCircles(
                         subMat, candidateCircles, Imgproc.HOUGH_GRADIENT, 1,
                         (double) mFotoGrises.rows() / 8, 100, 30,
-                        10, (int) currentEstado.radius
+                        10, (int) currentEstado.radius - 2
                 );
 
                 if (candidateCircles.cols() > 0) {
@@ -391,14 +350,13 @@ public class ExtractorDatosImagen {
                         // Verificar que comparte centro con el círculo externo.
                         if (Math.abs(innerCenter.x - currentEstado.center.x) < 2 &&
                                 Math.abs(innerCenter.y - currentEstado.center.y) < 2) {
-
                             estadosFinales.add(currentEstado); // Agregar a estados finales.
                             isFinalState = true;
                         }
                     }
                 }
 
-                releaseMats(subMat, candidateCircles);
+                releaseMats(subMat, candidateCircles, blurredMat, edges, dilatedEdges);
             }
 
             // Si se determinó que es un estado final, eliminar el círculo procesado de la lista original.
@@ -410,9 +368,8 @@ public class ExtractorDatosImagen {
 
         // Dibujar los estados finales en Rojo
         for (Estado finalEstado : estadosFinales) {
-            Imgproc.circle(mFotoOriginal, finalEstado.center, finalEstado.radius, new Scalar(255, 0, 0), 5); // Rojo
+            Imgproc.circle(mfoto, finalEstado.center, finalEstado.radius, new Scalar(255, 0, 0), 5); // Rojo
         }
-
     }
 
     private boolean buscarIgual(Estado estado) {
@@ -424,7 +381,7 @@ public class ExtractorDatosImagen {
         return false;
     }
 
-    private void detectInitialStates(List<Estado> estados) {
+    private void detectInitialStates(Mat mfoto, List<Estado> estados) {
         // Detectar el estado inicial como el círculo con mayor grosor
         double maxThickness = 0;
 
@@ -457,12 +414,12 @@ public class ExtractorDatosImagen {
         // Dibujar el estado inicial en verde
         if (estadoInicial != null) {
             Toast.makeText(context, "Hay un estado inicial", Toast.LENGTH_LONG).show();
-            Imgproc.circle(mFotoOriginal, estadoInicial.center, estadoInicial.radius, new Scalar(0, 255, 0), 5); // Verde
+            Imgproc.circle(mfoto, estadoInicial.center, estadoInicial.radius, new Scalar(0, 255, 0), 5); // Verde
         }
     }
 
     private void reconocerTexto(Estado estado) {
-        Rect roi = adjustROI(
+        Rect roi = getROI(
                 new Rect(
                         (int) (estado.center.x - estado.radius),
                         (int) (estado.center.y - estado.radius),
@@ -498,6 +455,7 @@ public class ExtractorDatosImagen {
                         Log.e("OCR_ERROR", "Error al detectar texto en el estado.", e);
                     }
                 });
+
         subMat.release();
     }
 
@@ -543,12 +501,11 @@ public class ExtractorDatosImagen {
         bitmap.recycle();
     }
 
-    private Rect adjustROI(Rect roi, Size size) {
-        int margin = 10; // Expandir ligeramente el ROI
-        int x = Math.max(roi.x - margin, 0);
-        int y = Math.max(roi.y - margin, 0);
-        int width = Math.min(roi.width + 2 * margin, (int) size.width - x);
-        int height = Math.min(roi.height + 2 * margin, (int) size.height - y);
+    private Rect getROI(Rect roi, Size size) {
+        int x = Math.max(roi.x, 0);
+        int y = Math.max(roi.y, 0);
+        int width = Math.min(roi.width, (int) size.width - x);
+        int height = Math.min(roi.height, (int) size.height - y);
         return new Rect(x, y, width, height);
     }
 
