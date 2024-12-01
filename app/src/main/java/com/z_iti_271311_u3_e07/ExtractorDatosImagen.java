@@ -171,27 +171,36 @@ public class ExtractorDatosImagen {
     private void detectarTransiciones(Mat mFotoOriginal) {
         // Aplicar desenfoque para reducir ruido y destacar bordes
         Mat blurredMat = new Mat();
-        Imgproc.GaussianBlur(mFotoOriginal, blurredMat, new Size(9, 9), 2);
+        Imgproc.GaussianBlur(mFotoOriginal, blurredMat, new Size(5, 5), 2);
 
         // Detectar bordes con Canny
         Mat edges = new Mat();
-        Imgproc.Canny(blurredMat, edges, 50, 150);
+        Imgproc.Canny(blurredMat, edges, 50, 150); // Puedes experimentar con estos valores
 
         // Dilatar bordes para reforzar contornos
         Mat dilatedEdges = new Mat();
         Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
         Imgproc.dilate(edges, dilatedEdges, kernel);
 
+        // Detectar líneas con HoughLinesP, ajusta estos parámetros para mejorar la detección de flechas
         Mat lines = new Mat();
-        Imgproc.HoughLinesP(dilatedEdges, lines, 1, Math.PI / 180, 50, 80, 10);
+        int threshold = 100;  // Ajuste para una mayor sensibilidad en la detección de líneas
+        int minLineLength = 30;  // Reduce este valor para detectar flechas más pequeñas
+        int maxLineGap = 10;  // Ajusta este parámetro para un mejor ajuste de las flechas
+
+        Imgproc.HoughLinesP(dilatedEdges, lines, 1, Math.PI / 180, threshold, minLineLength, maxLineGap);
+
+        // Dibujar las líneas detectadas
         for (int i = 0; i < lines.rows(); i++) {
             double[] points = lines.get(i, 0);
             double x1 = points[0], y1 = points[1], x2 = points[2], y2 = points[3];
-            // Dibuja la línea en la imagen
             Imgproc.line(mFotoOriginal, new Point(x1, y1), new Point(x2, y2), new Scalar(255, 0, 0), 2);
         }
 
+        // Guardar la imagen con las líneas detectadas
         guardarMat(mFotoOriginal, "lineas");
+
+        // Liberar recursos
         releaseMats(mFotoOriginal, blurredMat, edges, dilatedEdges, lines);
     }
 
