@@ -297,7 +297,6 @@ public class MainActivity extends AppCompatActivity {
     private void drawAutomata(Automata automata) {
         // Limpiar el lienzo antes de dibujar
         drawingView.clear();
-
         // Dibujar estados
         if (automata.getEstadoInicial() != null) {
             Estado estadoInicial = automata.getEstadoInicial();
@@ -310,7 +309,6 @@ public class MainActivity extends AppCompatActivity {
                     estadoInicial.getNombre()
             );
         }
-
         for (Estado estadoFinal : automata.getListaEstadosFinales()) {
             drawingView.drawState(
                     (float) estadoFinal.getCenter().x,
@@ -321,7 +319,6 @@ public class MainActivity extends AppCompatActivity {
                     estadoFinal.getNombre()
             );
         }
-
         for (Estado estadoNormal : automata.getListaEstadosNormales()) {
             drawingView.drawState(
                     (float) estadoNormal.getCenter().x,
@@ -332,7 +329,6 @@ public class MainActivity extends AppCompatActivity {
                     estadoNormal.getNombre()
             );
         }
-
     }
 
     private void simulateAutomata(String input) {
