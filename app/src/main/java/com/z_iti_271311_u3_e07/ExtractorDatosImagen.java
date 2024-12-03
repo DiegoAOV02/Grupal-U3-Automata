@@ -12,20 +12,17 @@ import android.provider.MediaStore;
 import android.util.Log;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
-
-import com.google.android.gms.tasks.OnFailureListener;
-import com.google.android.gms.tasks.OnSuccessListener;
-import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+import com.googlecode.tesseract.android.TessBaseAPI;
 
 import org.opencv.android.Utils;
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
+import org.opencv.core.MatOfPoint;
+import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
@@ -44,19 +41,20 @@ public class ExtractorDatosImagen {
     private Bitmap imagenOriginal;
     private Context context;
     private String currentPhotoPath;
+    TessBaseAPI tessBaseAPI;
+    //Reconocimiento de texto
+    TextRecognizer recognizer;
 
     //Matrices necesarias
     private Mat mFotoOriginal;
     private Mat mFotoGrises;
+    final String[] detectedText = new String[1];
 
     //Listas de elementos
     private ArrayList<Estado> estados = new ArrayList<>();
     private Estado estadoInicial = null;
     private ArrayList<Estado> estadosFinales = new ArrayList<>(); // Lista para los estados finales detectados.
     private ArrayList<Transicion> transiciones = new ArrayList<>();
-
-    //Reconocimiento de texto
-    TextRecognizer recognizer;
 
     public ExtractorDatosImagen(Context context, String currentPhotoPath, Bitmap imagenOriginal) {
         this.imagenOriginal = imagenOriginal;
@@ -86,12 +84,15 @@ public class ExtractorDatosImagen {
 
     public void extraerDatos(Bitmap bitmap) {
         // Procesar la imagen para detectar formas
+        //Inicializar tessbase
+        tessBaseAPI = new TessBaseAPI();
+        tessBaseAPI.init(context.getFilesDir() + "/tesseract/", "eng");
         recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         detectAutomata(bitmap);
     }
 
     public boolean isAutomata() {
-        if (estadoInicial != null && !estadosFinales.isEmpty() && !transiciones.isEmpty()) {
+        if (estadoInicial != null && !estadosFinales.isEmpty() /*&& !transiciones.isEmpty()*/) {
             Toast.makeText(context, "Ingresa la cadena a recorrer y empieza el recorrido", Toast.LENGTH_LONG).show();
             return true;
         } else {
@@ -168,40 +169,94 @@ public class ExtractorDatosImagen {
         releaseMats(mFotoOriginal, mFotoGrises, dilatedEdges);
     }
 
+    private void procesarBitmapReconocer(Estado estado) {
+        Rect roi = getROI(
+                new Rect(
+                        (int) (estado.center.x - estado.radius),
+                        (int) (estado.center.y - estado.radius),
+                        (int) (estado.radius * 2),
+                        (int) (estado.radius * 2)
+                ),
+                mFotoOriginal.size()
+        );
+
+        Mat subMat = new Mat(mFotoGrises, roi);
+        Bitmap bitmap = Bitmap.createBitmap(subMat.width(), subMat.height(), Bitmap.Config.ARGB_8888);
+        Utils.matToBitmap(subMat, bitmap);
+// Crear instancia de ReconocerTexto
+        ReconocerTexto reconocerTexto = new ReconocerTexto();
+
+        // Llamar al método de reconocimiento de texto
+        reconocerTexto.reconocerTexto(context, bitmap, new ReconocerTexto.TextRecognitionCallback() {
+            @Override
+            public void onTextRecognized(String texto) {
+                if (!texto.isEmpty()) {
+                    // Texto reconocido no está vacío
+                    guardarDato(estado, texto);
+                } else {
+                    // No se reconoció texto
+                    guardarDato(estado, "Estado");
+                }
+            }
+        });
+        subMat.release();
+    }
+
+    private void guardarDato(Estado estado, String texto) {
+        estado.setNombre(texto);
+    }
+
     private void detectarTransiciones(Mat mFotoOriginal) {
         // Aplicar desenfoque para reducir ruido y destacar bordes
         Mat blurredMat = new Mat();
-        Imgproc.GaussianBlur(mFotoOriginal, blurredMat, new Size(5, 5), 2);
+        Imgproc.GaussianBlur(mFotoOriginal, blurredMat, new Size(9, 9), 2);
 
         // Detectar bordes con Canny
         Mat edges = new Mat();
-        Imgproc.Canny(blurredMat, edges, 50, 150); // Puedes experimentar con estos valores
+        Imgproc.Canny(blurredMat, edges, 50, 150);
 
         // Dilatar bordes para reforzar contornos
         Mat dilatedEdges = new Mat();
         Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
         Imgproc.dilate(edges, dilatedEdges, kernel);
 
-        // Detectar líneas con HoughLinesP, ajusta estos parámetros para mejorar la detección de flechas
+        // Detección de líneas rectas usando HoughLinesP
         Mat lines = new Mat();
-        int threshold = 100;  // Ajuste para una mayor sensibilidad en la detección de líneas
-        int minLineLength = 30;  // Reduce este valor para detectar flechas más pequeñas
-        int maxLineGap = 10;  // Ajusta este parámetro para un mejor ajuste de las flechas
-
-        Imgproc.HoughLinesP(dilatedEdges, lines, 1, Math.PI / 180, threshold, minLineLength, maxLineGap);
-
-        // Dibujar las líneas detectadas
+        Imgproc.HoughLinesP(dilatedEdges, lines, 1, Math.PI / 180, 50, 120, 10);
         for (int i = 0; i < lines.rows(); i++) {
-            double[] points = lines.get(i, 0);
-            double x1 = points[0], y1 = points[1], x2 = points[2], y2 = points[3];
-            Imgproc.line(mFotoOriginal, new Point(x1, y1), new Point(x2, y2), new Scalar(255, 0, 0), 2);
+            double[] puntos = lines.get(i, 0);
+            Point p1 = new Point(puntos[0], puntos[1]);
+            Point p2 = new Point(puntos[2], puntos[3]);
+            // Dibuja las líneas rectas detectadas
+            Imgproc.line(mFotoOriginal, p1, p2, new Scalar(255, 0, 0), 2);
         }
 
-        // Guardar la imagen con las líneas detectadas
+        // Detección de líneas curvas (bordes de flechas circulares o de retorno)
+        MatOfPoint2f approxCurve = new MatOfPoint2f();
+        List<MatOfPoint> contornos = new ArrayList<>();
+        Mat jerarquia = new Mat();
+        Imgproc.findContours(edges, contornos, jerarquia, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
+        for (MatOfPoint contorno : contornos) {
+            MatOfPoint2f contorno2f = new MatOfPoint2f(contorno.toArray());
+            double perimetro = Imgproc.arcLength(contorno2f, true);
+            Imgproc.approxPolyDP(contorno2f, approxCurve, 0.02 * perimetro, true);
+
+            // Filtro para curvas cerradas (ej., flechas de retorno)
+            if (Imgproc.contourArea(contorno) > 100 && approxCurve.total() > 4) {
+                Rect rect = Imgproc.boundingRect(new MatOfPoint(approxCurve.toArray()));
+                Imgproc.rectangle(mFotoOriginal, rect.tl(), rect.br(), new Scalar(0, 255, 0), 2);
+            }
+            contorno2f.release();
+        }
+
+        // Liberar memoria de matrices para evitar fugas
         guardarMat(mFotoOriginal, "lineas");
 
-        // Liberar recursos
-        releaseMats(mFotoOriginal, blurredMat, edges, dilatedEdges, lines);
+        approxCurve.release();
+        for (MatOfPoint contorno : contornos) {
+            contorno.release();
+        }
+        releaseMats(mFotoOriginal, blurredMat, edges, dilatedEdges, lines, jerarquia);
     }
 
     private void detectarEstados(Mat matriz, Mat dilatedEdges) {
@@ -233,7 +288,7 @@ public class ExtractorDatosImagen {
             if (!buscarIgual(estado)) {
                 estados.add(estado);
                 // Reconocer texto en este estado
-                reconocerTexto(estado);
+                procesarBitmapReconocer(estado);
             }
         }
 
@@ -427,47 +482,6 @@ public class ExtractorDatosImagen {
         }
     }
 
-    private void reconocerTexto(Estado estado) {
-        Rect roi = getROI(
-                new Rect(
-                        (int) (estado.center.x - estado.radius),
-                        (int) (estado.center.y - estado.radius),
-                        (int) (estado.radius * 2),
-                        (int) (estado.radius * 2)
-                ),
-                mFotoOriginal.size()
-        );
-
-        Mat subMat = new Mat(mFotoGrises, roi);
-        Bitmap bitmap = Bitmap.createBitmap(subMat.width(), subMat.height(), Bitmap.Config.ARGB_8888);
-        Utils.matToBitmap(subMat, bitmap);
-
-        InputImage image = InputImage.fromBitmap(bitmap, 0);
-
-        recognizer.process(image)
-                .addOnSuccessListener(new OnSuccessListener<Text>() {
-                    @Override
-                    public void onSuccess(Text text) {
-                        String detectedText = text.getText();
-                        if (!detectedText.isEmpty()) {
-                            estado.setNombre(detectedText); // Asignar texto al estado
-                            Log.d("OCR_RESULT", "Estado detectado: " + detectedText);
-                        } else {
-                            estado.setNombre("Texto no detectado");
-                            Log.d("OCR_RESULT", "No se detectó texto en el estado.");
-                        }
-                    }
-                })
-                .addOnFailureListener(new OnFailureListener() {
-                    @Override
-                    public void onFailure(@NonNull Exception e) {
-                        Log.e("OCR_ERROR", "Error al detectar texto en el estado.", e);
-                    }
-                });
-
-        subMat.release();
-    }
-
     public void guardarMat(Mat matriz, String nombre) {
         Bitmap bitmap = Bitmap.createBitmap(matriz.cols(), matriz.rows(), Bitmap.Config.ARGB_8888);
         Utils.matToBitmap(matriz, bitmap);
@@ -522,5 +536,12 @@ public class ExtractorDatosImagen {
         for (Mat mat : mats) {
             if (mat != null) mat.release();
         }
+    }
+
+    // Callback para manejar texto reconocido
+    interface OCRCallback {
+        void onTextRecognized(String text);
+
+        void onError(Exception e);
     }
 }
