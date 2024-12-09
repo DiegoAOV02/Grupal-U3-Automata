@@ -1,5 +1,4 @@
 package com.z_iti_271311_u3_e07;
-import static org.opencv.imgproc.Imgproc.getStructuringElement;
 
 import android.Manifest;
 import android.app.AlertDialog;
@@ -29,9 +28,15 @@ import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
+import org.opencv.core.Mat;
+import org.opencv.core.Rect;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -64,7 +69,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         imageView = findViewById(R.id.imageView);
-        drawingView = findViewById(R.id.drawView);
+        drawingView = findViewById(R.id.drawingView);
         inputString = findViewById(R.id.inputString);
         tvResult = findViewById(R.id.tvResult);
 
@@ -280,9 +285,12 @@ public class MainActivity extends AppCompatActivity {
                         automata.setEstadoInicial(extractorDatosImagen.getEstadoInicial());
                         automata.setListaEstadosFinales(extractorDatosImagen.getEstadosFinales());
                         automata.setListaEstadosNormales(extractorDatosImagen.getEstados());
-                        automata.getListaTransiciones(extractorDatosImagen.getTransiciones());
+                        automata.setListaTransiciones(extractorDatosImagen.getTransiciones());
+
                         // Dibujar automáticamente en el DrawingView
-                        drawAutomata(automata);
+                        Toast.makeText(getApplicationContext(), "Termino la extraccion", Toast.LENGTH_LONG).show();
+                        drawAutomata(automata, rotatedBitmap);
+                        Log.d("AUTOMATA", "SE DIBUJO EL AUTOMATA");
                     } else {
                         Toast.makeText(this, "La imagen no contiene un autómata válido.", Toast.LENGTH_SHORT).show();
                     }
@@ -294,40 +302,47 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void drawAutomata(Automata automata) {
-        // Limpiar el lienzo antes de dibujar
+    private void drawAutomata(Automata automata, Bitmap imagen) {
         drawingView.clear();
+        Mat mFotoOriginal = new Mat();
+        Utils.bitmapToMat(imagen, mFotoOriginal);
+
         // Dibujar estados
-        if (automata.getEstadoInicial() != null) {
-            Estado estadoInicial = automata.getEstadoInicial();
-            drawingView.drawState(
-                    (float) estadoInicial.getCenter().x,
-                    (float) estadoInicial.getCenter().y,
-                    estadoInicial.getRadius(),
-                    true,  // Es inicial
-                    false, // No es final
-                    estadoInicial.getNombre()
-            );
+        Estado estadoInicial = automata.getEstadoInicial();
+
+        drawingView.drawState(estadoInicial, true, false, mFotoOriginal);
+
+        if (!automata.getListaEstadosFinales().isEmpty()) {
+            for (Estado estadoFinal : automata.getListaEstadosFinales()) {
+                drawingView.drawState(estadoFinal, false, true, mFotoOriginal);
+            }
+        } else {
+            Log.d("DIBUJO", "No hay estados finales");
         }
-        for (Estado estadoFinal : automata.getListaEstadosFinales()) {
-            drawingView.drawState(
-                    (float) estadoFinal.getCenter().x,
-                    (float) estadoFinal.getCenter().y,
-                    estadoFinal.getRadius(),
-                    false, // No es inicial
-                    true,  // Es final
-                    estadoFinal.getNombre()
-            );
+
+        if (!automata.getListaEstadosNormales().isEmpty()) {
+            for (Estado estadoNormal : automata.getListaEstadosNormales()) {
+                drawingView.drawState(estadoNormal, false, false, mFotoOriginal);
+            }
+        } else {
+            Log.d("DIBUJO", "No hay estados normales");
         }
-        for (Estado estadoNormal : automata.getListaEstadosNormales()) {
-            drawingView.drawState(
-                    (float) estadoNormal.getCenter().x,
-                    (float) estadoNormal.getCenter().y,
-                    estadoNormal.getRadius(),
-                    false, // No es inicial
-                    false, // No es final
-                    estadoNormal.getNombre()
-            );
+
+        // Dibujar transiciones
+        if (!automata.getListaTransiciones().isEmpty()) {
+            for (Transicion transicion : automata.getListaTransiciones()) {
+                Estado from = transicion.getFrom();
+                Estado to = transicion.getTo();
+                drawingView.drawTransition(
+                        (float) from.getCenter().x + from.getRadius(),
+                        (float) from.getCenter().y,
+                        (float) to.getCenter().x - to.getRadius(),
+                        (float) to.getCenter().y,
+                        transicion.getValor()
+                );
+            }
+        } else {
+            Log.d("DIBUJO", "No hay transiciones");
         }
     }
 

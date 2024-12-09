@@ -1,13 +1,11 @@
 package com.z_iti_271311_u3_e07;
 
-import org.opencv.core.Mat;
 import org.opencv.core.Point;
 
 public class Estado {
-    private String nombre;
+    private String nombre = "";
     Point center;
     int radius;
-    String tipo;
 
     public Estado(Point center, int radius) {
         this.center = center;
@@ -36,13 +34,5 @@ public class Estado {
 
     public void setRadius(int radius) {
         this.radius = radius;
-    }
-
-    public String getTipo() {
-        return tipo;
-    }
-
-    public void setTipo(String tipo) {
-        this.tipo = tipo;
     }
 }

@@ -1,12 +1,27 @@
 package com.z_iti_271311_u3_e07;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.util.AttributeSet;
-import android.util.Log;
 import android.view.View;
+
+import androidx.annotation.NonNull;
+
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
+import com.google.mlkit.vision.text.TextRecognition;
+import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
+
+import org.opencv.android.Utils;
+import org.opencv.core.Mat;
+import org.opencv.core.Rect;
+import org.opencv.imgproc.Imgproc;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -57,23 +72,59 @@ public class DrawingView extends View {
         arrowPaint.setColor(Color.BLACK);
     }
 
-    public void drawState(float cx, float cy, float radius, boolean isInitial, boolean isFinal, String name) {
+    public void drawState(Estado estado, boolean isInitial, boolean isFinal, Mat mFotoOriginal) {
+        // Dibujar el círculo
         if (isInitial) {
-            Log.d("DrawingView", "Dibujando estado inicial en (" + cx + ", " + cy + ") con radio " + radius);
-            drawCircle(cx, cy, radius, initialStatePaint);
+            drawCircle((float) estado.getCenter().x / 6, (float) estado.getCenter().y / 6, (float) estado.getRadius() / 8, initialStatePaint);
         } else if (isFinal) {
-            Log.d("DrawingView", "Dibujando estado final en (" + cx + ", " + cy + ") con radio " + radius);
-            drawCircle(cx, cy, radius, finalStatePaint);
-            drawCircle(cx, cy, radius - 10, finalStatePaint); // Círculo interno
+            drawCircle((float) estado.getCenter().x / 6, (float) estado.getCenter().y / 6, (float) estado.getRadius() / 8, finalStatePaint);
+            drawCircle((float) estado.getCenter().x / 6, (float) estado.getCenter().y / 6, (float) (estado.getRadius() / 8) - 10, finalStatePaint); // Círculo interno para estado final
         } else {
-            Log.d("DrawingView", "Dibujando estado normal en (" + cx + ", " + cy + ") con radio " + radius);
-            drawCircle(cx, cy, radius, statePaint);
+            drawCircle((float) estado.getCenter().x / 6, (float) estado.getCenter().y / 6, (float) estado.getRadius() / 8, statePaint);
         }
 
-        Log.d("DrawingView", "Dibujando texto: " + name + " en (" + cx + ", " + cy + ")");
-        drawText(name, cx - 15, cy + 10, textPaint);
-    }
+        // Extraer el nombre del estado
+        Rect roi = ExtractorDatosImagen.getROI(
+                new Rect(
+                        (int) (estado.center.x - estado.radius),
+                        (int) (estado.center.y - estado.radius),
+                        (int) (estado.radius * 2),
+                        (int) (estado.radius * 2)
+                ),
+                mFotoOriginal.size()
+        );
 
+        Mat mFotoGrises = new Mat();
+        Imgproc.cvtColor(mFotoOriginal, mFotoGrises, Imgproc.COLOR_RGB2GRAY);
+
+        Mat subMat = new Mat(mFotoGrises, roi);
+        Bitmap bitmap = Bitmap.createBitmap(subMat.width(), subMat.height(), Bitmap.Config.ARGB_8888);
+        Utils.matToBitmap(subMat, bitmap);
+
+        // Llamar al método de reconocimiento de texto
+        InputImage imagen = InputImage.fromBitmap(bitmap, 0);
+
+        TextRecognizer recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+        recognizer.process(imagen)
+                .addOnSuccessListener(new OnSuccessListener<Text>() {
+                    @Override
+                    public void onSuccess(Text result) {
+                        String textoCompleto = result.getText();
+                        if (textoCompleto.isEmpty()){
+                            drawText("Estado", (float) (estado.getCenter().x / 6) - 15, (float) (estado.getCenter().y / 6) + 10, textPaint);
+                        }else{
+                            drawText(textoCompleto, (float) (estado.getCenter().x / 6) - 15, (float) (estado.getCenter().y / 6) + 10, textPaint);
+                        }
+                    }
+                })
+                .addOnFailureListener(new OnFailureListener() {
+                    @Override
+                    public void onFailure(@NonNull Exception e) {
+                        // En caso de error, devolver cadena vacía
+                        drawText("Estado", (float) (estado.getCenter().x / 6) - 15, (float) (estado.getCenter().y / 6) + 10, textPaint);
+                    }
+                });
+    }
 
     public void drawTransition(float startX, float startY, float endX, float endY, String value) {
         // Dibujar línea

@@ -15,7 +15,7 @@ import android.widget.Toast;
 import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
-//import com.googlecode.tesseract.android.TessBaseAPI;
+import com.googlecode.tesseract.android.TessBaseAPI;
 
 import org.opencv.android.Utils;
 import org.opencv.core.Core;
@@ -41,7 +41,7 @@ public class ExtractorDatosImagen {
     private Bitmap imagenOriginal;
     private Context context;
     private String currentPhotoPath;
-//    TessBaseAPI tessBaseAPI;
+    TessBaseAPI tessBaseAPI;
     //Reconocimiento de texto
     TextRecognizer recognizer;
 
@@ -83,16 +83,11 @@ public class ExtractorDatosImagen {
     }
 
     public void extraerDatos(Bitmap bitmap) {
-        // Procesar la imagen para detectar formas
-        //Inicializar tessbase
-//        tessBaseAPI = new TessBaseAPI();
-//        tessBaseAPI.init(context.getFilesDir() + "/tesseract/", "eng");
-        recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         detectAutomata(bitmap);
     }
 
     public boolean isAutomata() {
-        if (estadoInicial != null && !estadosFinales.isEmpty() /*&& !transiciones.isEmpty()*/) {
+        if (estadoInicial != null /*&& !estadosFinales.isEmpty() && !transiciones.isEmpty()*/) {
             Toast.makeText(context, "Ingresa la cadena a recorrer y empieza el recorrido", Toast.LENGTH_LONG).show();
             return true;
         } else {
@@ -164,49 +159,9 @@ public class ExtractorDatosImagen {
         releaseMats(blurredMat, kernel, edges);
 
         detectarEstados(mFotoOriginal.clone(), dilatedEdges);
-        detectarTransiciones(mFotoOriginal.clone());
+        //detectarTransiciones(mFotoOriginal.clone());
 
         releaseMats(mFotoOriginal, mFotoGrises, dilatedEdges);
-    }
-
-    private void procesarBitmapReconocer(Estado estado, TextRecognitionCallback callback) {
-        Rect roi = getROI(
-                new Rect(
-                        (int) (estado.center.x - estado.radius),
-                        (int) (estado.center.y - estado.radius),
-                        (int) (estado.radius * 2),
-                        (int) (estado.radius * 2)
-                ),
-                mFotoOriginal.size()
-        );
-
-        Mat subMat = new Mat(mFotoGrises, roi);
-        Bitmap bitmap = Bitmap.createBitmap(subMat.width(), subMat.height(), Bitmap.Config.ARGB_8888);
-        Utils.matToBitmap(subMat, bitmap);
-// Crear instancia de ReconocerTexto
-        ReconocerTexto reconocerTexto = new ReconocerTexto();
-
-        // Llamar al método de reconocimiento de texto
-        reconocerTexto.reconocerTexto(context, bitmap, new ReconocerTexto.TextRecognitionCallback() {
-            @Override
-            public void onTextRecognized(String texto) {
-                if (!texto.isEmpty()) {
-                    // Texto reconocido no está vacío
-                    guardarDato(estado, texto);
-                } else {
-                    // No se reconoció texto
-                    guardarDato(estado, "Estado");
-                }
-                Log.d("OCR_RESULT_BITMAP", "Texto detectado: " + texto);
-//                callback.onTextRecognized(estado);
-            }
-        });
-        subMat.release();
-    }
-
-    private void guardarDato(Estado estado, String texto) {
-        estado.setNombre(texto);
-        Log.d("GUARDAR DATO:", "Estado: " + estado + " Nombre: " + texto);
     }
 
     private void detectarTransiciones(Mat mFotoOriginal) {
@@ -253,7 +208,7 @@ public class ExtractorDatosImagen {
         }
 
         // Liberar memoria de matrices para evitar fugas
-        guardarMat(mFotoOriginal, "lineas");
+        //guardarMat(mFotoOriginal, "lineas");
 
         approxCurve.release();
         for (MatOfPoint contorno : contornos) {
@@ -285,16 +240,12 @@ public class ExtractorDatosImagen {
             Point center = new Point(data[0], data[1]);
             int radius = (int) Math.round(data[2]);
 
+            // Añadir a la lista de círculos detectados
             Estado estado = new Estado(center, radius);
 
             if (!buscarIgual(estado)) {
-                procesarBitmapReconocer(estado, new TextRecognitionCallback() {
-                    @Override
-                    public void onTextRecognized(Estado estadoReconocido) {
-                        Log.d("OCR_RESULT_GET", "Texto detectado: " + estadoReconocido.getNombre());
-                        estados.add(estadoReconocido);
-                    }
-                });
+                // Reconocer texto en este estado
+                estados.add(estado);
             }
         }
 
@@ -530,7 +481,7 @@ public class ExtractorDatosImagen {
         bitmap.recycle();
     }
 
-    private Rect getROI(Rect roi, Size size) {
+    public static Rect getROI(Rect roi, Size size) {
         int x = Math.max(roi.x, 0);
         int y = Math.max(roi.y, 0);
         int width = Math.min(roi.width, (int) size.width - x);
@@ -542,17 +493,5 @@ public class ExtractorDatosImagen {
         for (Mat mat : mats) {
             if (mat != null) mat.release();
         }
-    }
-
-    // Interfaz callback
-    public interface TextRecognitionCallback {
-        void onTextRecognized(Estado estado);
-    }
-
-    // Callback para manejar texto reconocido
-    interface OCRCallback {
-        void onTextRecognized(String text);
-
-        void onError(Exception e);
     }
 }
