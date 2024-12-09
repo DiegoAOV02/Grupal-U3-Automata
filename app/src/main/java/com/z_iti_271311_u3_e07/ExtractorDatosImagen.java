@@ -1,4 +1,4 @@
-package com.z_iti_271311_u3_e07;
+package com.automatas;
 
 import android.content.ContentValues;
 import android.content.Context;
@@ -12,9 +12,7 @@ import android.provider.MediaStore;
 import android.util.Log;
 import android.widget.Toast;
 
-import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 import com.googlecode.tesseract.android.TessBaseAPI;
 
 import org.opencv.android.Utils;
@@ -159,62 +157,61 @@ public class ExtractorDatosImagen {
         releaseMats(blurredMat, kernel, edges);
 
         detectarEstados(mFotoOriginal.clone(), dilatedEdges);
-        //detectarTransiciones(mFotoOriginal.clone());
+        detectarTransiciones(mFotoGrises.clone());
 
         releaseMats(mFotoOriginal, mFotoGrises, dilatedEdges);
     }
 
-    private void detectarTransiciones(Mat mFotoOriginal) {
-        // Aplicar desenfoque para reducir ruido y destacar bordes
-        Mat blurredMat = new Mat();
-        Imgproc.GaussianBlur(mFotoOriginal, blurredMat, new Size(9, 9), 2);
-
+    private void detectarTransiciones(Mat mFotoEscalaGrises) {
+        ArrayList<Estado> listaEstados = new ArrayList<>();
+        listaEstados.add(estadoInicial);
+        listaEstados.addAll(estados);
+        listaEstados.addAll(estadosFinales);
         // Detectar bordes con Canny
         Mat edges = new Mat();
-        Imgproc.Canny(blurredMat, edges, 50, 150);
+        Imgproc.Canny(mFotoEscalaGrises, edges, 100, 200);
 
-        // Dilatar bordes para reforzar contornos
-        Mat dilatedEdges = new Mat();
-        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
-        Imgproc.dilate(edges, dilatedEdges, kernel);
+        List<MatOfPoint> contours = new ArrayList<>();
+        Mat hierarchy = new Mat();
+        Imgproc.findContours(edges, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
 
-        // Detección de líneas rectas usando HoughLinesP
+        // Crear una imagen vacía para los contornos
+        Mat contourImage = Mat.zeros(edges.size(), CvType.CV_8UC1);
+
+        // Dibujar solo los contornos
+        Imgproc.drawContours(contourImage, contours, -1, new Scalar(255), 2);
+
         Mat lines = new Mat();
-        Imgproc.HoughLinesP(dilatedEdges, lines, 1, Math.PI / 180, 50, 120, 10);
+        Imgproc.HoughLinesP(contourImage, lines, 1, Math.PI / 180, 50, 50, 10);
+
         for (int i = 0; i < lines.rows(); i++) {
-            double[] puntos = lines.get(i, 0);
-            Point p1 = new Point(puntos[0], puntos[1]);
-            Point p2 = new Point(puntos[2], puntos[3]);
-            // Dibuja las líneas rectas detectadas
-            Imgproc.line(mFotoOriginal, p1, p2, new Scalar(255, 0, 0), 2);
-        }
+            double[] line = lines.get(i, 0);
+            Point pt1 = new Point(line[0], line[1]);
+            Point pt2 = new Point(line[2], line[3]);
 
-        // Detección de líneas curvas (bordes de flechas circulares o de retorno)
-        MatOfPoint2f approxCurve = new MatOfPoint2f();
-        List<MatOfPoint> contornos = new ArrayList<>();
-        Mat jerarquia = new Mat();
-        Imgproc.findContours(edges, contornos, jerarquia, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE);
-        for (MatOfPoint contorno : contornos) {
-            MatOfPoint2f contorno2f = new MatOfPoint2f(contorno.toArray());
-            double perimetro = Imgproc.arcLength(contorno2f, true);
-            Imgproc.approxPolyDP(contorno2f, approxCurve, 0.02 * perimetro, true);
+            boolean dentroDeEstado = false;
 
-            // Filtro para curvas cerradas (ej., flechas de retorno)
-            if (Imgproc.contourArea(contorno) > 100 && approxCurve.total() > 4) {
-                Rect rect = Imgproc.boundingRect(new MatOfPoint(approxCurve.toArray()));
-                Imgproc.rectangle(mFotoOriginal, rect.tl(), rect.br(), new Scalar(0, 255, 0), 2);
+            // Comprobar si ambos extremos están dentro de algún círculo
+            for (Estado estado : listaEstados) {
+                double dist1 = Math.hypot(pt1.x - estado.getCenter().x, pt1.y - estado.getCenter().y);
+                double dist2 = Math.hypot(pt2.x - estado.getCenter().x, pt2.y - estado.getCenter().y);
+
+                double margen = 60;  // Margen adicional
+                if (dist1 <= estado.getRadius() + margen && dist2 <= estado.getRadius() + margen) {
+                    dentroDeEstado = true;
+                }
             }
-            contorno2f.release();
+
+            // Dibujar solo líneas fuera de los círculos
+            if (!dentroDeEstado) {
+                Imgproc.line(mFotoOriginal, pt1, pt2, new Scalar(0, 255, 0), 3);
+                transiciones.add(new Transicion(pt1, pt2));
+            }
         }
 
-        // Liberar memoria de matrices para evitar fugas
-        //guardarMat(mFotoOriginal, "lineas");
 
-        approxCurve.release();
-        for (MatOfPoint contorno : contornos) {
-            contorno.release();
-        }
-        releaseMats(mFotoOriginal, blurredMat, edges, dilatedEdges, lines, jerarquia);
+        guardarMat(mFotoOriginal, "lineas");
+        releaseMats(mFotoEscalaGrises, edges, hierarchy);
     }
 
     private void detectarEstados(Mat matriz, Mat dilatedEdges) {
