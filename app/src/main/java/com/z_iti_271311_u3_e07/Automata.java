@@ -12,6 +12,10 @@ public class Automata {
         return listaTransiciones;
     }
 
+    public ArrayList<Transicion> getListaTransiciones() {
+        return listaTransiciones;
+    }
+
     public Estado getEstadoInicial() {
         return estadoInicial;
     }

@@ -1,4 +1,4 @@
-package com.automatas;
+package com.z_iti_271311_u3_e07;
 
 import android.content.ContentValues;
 import android.content.Context;
@@ -13,7 +13,6 @@ import android.util.Log;
 import android.widget.Toast;
 
 import com.google.mlkit.vision.text.TextRecognizer;
-import com.googlecode.tesseract.android.TessBaseAPI;
 
 import org.opencv.android.Utils;
 import org.opencv.core.Core;
@@ -39,7 +38,6 @@ public class ExtractorDatosImagen {
     private Bitmap imagenOriginal;
     private Context context;
     private String currentPhotoPath;
-    TessBaseAPI tessBaseAPI;
     //Reconocimiento de texto
     TextRecognizer recognizer;
 
@@ -205,7 +203,7 @@ public class ExtractorDatosImagen {
             // Dibujar solo líneas fuera de los círculos
             if (!dentroDeEstado) {
                 Imgproc.line(mFotoOriginal, pt1, pt2, new Scalar(0, 255, 0), 3);
-                transiciones.add(new Transicion(pt1, pt2));
+                transiciones.add(new Transicion(pt1,pt2));
             }
         }
 

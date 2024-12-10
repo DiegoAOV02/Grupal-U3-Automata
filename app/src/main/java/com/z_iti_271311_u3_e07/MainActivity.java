@@ -47,7 +47,6 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int CAMERA_REQUEST_CODE = 100;
     private static final int PERMISSION_REQUEST_CODE = 200;
-
     private ImageView imageView; // Mostrar imagen original
     private DrawingView drawingView; // Lienzo para dibujo
     private EditText inputString; // Para ingresar cadenas
@@ -69,7 +68,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         imageView = findViewById(R.id.imageView);
-        drawingView = findViewById(R.id.drawingView);
+        drawingView = findViewById(R.id.drawView);
         inputString = findViewById(R.id.inputString);
         tvResult = findViewById(R.id.tvResult);
 
@@ -90,13 +89,27 @@ public class MainActivity extends AppCompatActivity {
 
         // Simular cadena en el autómata
         btnSimulate.setOnClickListener(v -> {
-            String input = inputString.getText().toString();
-            if (currentPhotoPath != null && !input.isEmpty()) {
-                simulateAutomata(input);
+            if (extractorDatosImagen != null && extractorDatosImagen.isAutomata()) {
+                Automata automata = new Automata();
+                automata.setEstadoInicial(extractorDatosImagen.getEstadoInicial());
+                automata.setListaEstadosFinales(extractorDatosImagen.getEstadosFinales());
+                automata.setListaEstadosNormales(extractorDatosImagen.getEstados());
+                automata.getListaTransiciones(extractorDatosImagen.getTransiciones());
+
+                Recorrido recorrido = new Recorrido(automata);
+
+                String input = inputString.getText().toString();
+                List<String> resultado = recorrido.simular(input);
+                if (resultado != null) {
+                    tvResult.setText("Recorrido: " + resultado);
+                } else {
+                    tvResult.setText("La cadena no es aceptada por el autómata.");
+                }
             } else {
-                Toast.makeText(this, "Captura una imagen y escribe una cadena.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Primero procesa una imagen válida.", Toast.LENGTH_SHORT).show();
             }
         });
+
     }
 
     // Solicitar permisos dinámicos
@@ -285,7 +298,7 @@ public class MainActivity extends AppCompatActivity {
                         automata.setEstadoInicial(extractorDatosImagen.getEstadoInicial());
                         automata.setListaEstadosFinales(extractorDatosImagen.getEstadosFinales());
                         automata.setListaEstadosNormales(extractorDatosImagen.getEstados());
-                        automata.setListaTransiciones(extractorDatosImagen.getTransiciones());
+                        automata.getListaTransiciones(extractorDatosImagen.getTransiciones());
 
                         // Dibujar automáticamente en el DrawingView
                         Toast.makeText(getApplicationContext(), "Termino la extraccion", Toast.LENGTH_LONG).show();
